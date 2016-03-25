@@ -7,6 +7,7 @@
 #ifndef __HPP_HTMLTEMPLATE
 #define __HPP_HTMLTEMPLATE
 
+
 // INCLUDES
 
 #include "String.hpp"
@@ -15,11 +16,12 @@
 #include <deque>
 #include <string>
 
+
 // DECLARATIONS
 
 class HTMLTemplate
 {
-    public:
+public:
     // string list for holding the template
     // public so that it can be accessed directly for display without using
     // the default set of placeholders
@@ -34,12 +36,13 @@ class HTMLTemplate
 
     // fill in the template with the given info and send it to the client over the given socket
     // only useful if you used the default set of placeholders
-    void display(Socket *s, String *url, std::string &reason, std::string &logreason, std::string &categories,
-        std::string *user, std::string *ip, std::string *host, int filtergroup, String &hashed);
+    void display(BaseSocket *s, String *url, std::string &reason, std::string &logreason, std::string &categories,
+                 std::string *user, std::string *ip, std::string *host, int filtergroup, String &hashed);
 
-    private:
+private:
     // add a string to the list
     void push(String s);
 };
 
 #endif
+

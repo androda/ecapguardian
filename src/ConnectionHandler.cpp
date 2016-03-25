@@ -1,6 +1,7 @@
 // http://e2guardian.org/
 // Released under the GPL v2, with the OpenSSL exception described in the README file.
 
+
 // INCLUDES
 #ifdef HAVE_CONFIG_H
 #include "dgconfig.h"
@@ -8,16 +9,13 @@
 #include "ConnectionHandler.hpp"
 #include "DataBuffer.hpp"
 #include "UDSocket.hpp"
+#include "BaseSocket.hpp"
 #include "Auth.hpp"
 #include "FDTunnel.hpp"
 #include "BackedStore.hpp"
 #include "ImageContainer.hpp"
 #include "FDFuncs.hpp"
 #include <signal.h>
-
-#ifdef __SSLMITM
-#include "CertificateAuthority.hpp"
-#endif //__SSLMITM
 
 #include <syslog.h>
 #include <cerrno>
@@ -40,16 +38,17 @@
 #include <linux/netfilter_ipv4.h>
 #endif
 
-#ifdef __SSLMITM
-#include "openssl/ssl.h"
-#include "openssl/x509v3.h"
-#include "String.hpp"
-#endif
-
 // GLOBALS
 extern OptionContainer o;
 extern bool is_daemonised;
 extern bool reloadconfig;
+
+const std::string blockHeaders("HTTP/1.1 200 OK\nAccept-Ranges: bytes\nConnection: close\nContent-Type: text/html; charset=UTF-8\n\n\0\0");
+const char FLAG_USE_VIRGIN = 'v';
+const char FLAG_MODIFY = 'm';
+const char FLAG_BLOCK = 'b';
+const char FLAG_MSG_RECVD = 'r';
+const std::string FLAG_END = "\n\n\0\0";
 
 #ifdef DGDEBUG
 int dbgPeerPort;
@@ -58,11 +57,12 @@ int dbgPeerPort;
 // IMPLEMENTATION
 
 // Custom exception class for POST filtering errors
-class postfilter_exception : public std::runtime_error
+class postfilter_exception: public std::runtime_error
 {
-    public:
+public:
     postfilter_exception(const char *const &msg)
-        : std::runtime_error(msg){};
+            : std::runtime_error(msg)
+    {};
 };
 
 //
@@ -77,25 +77,27 @@ bool wasClean(HTTPHeader &header, String &url, const int fg)
     if ((header.requestType() != "GET") || url.length() > 2000)
         return false; // only check GET and normal length urls
     UDSocket ipcsock;
-    if (ipcsock.getFD() < 0) {
+    if (ipcsock.getFD() < 0)    {
         syslog(LOG_ERR, "Error creating ipc socket to url cache");
         return false;
     }
-    if (ipcsock.connect(o.urlipc_filename.c_str()) < 0) { // conn to dedicated url cach proc
+    if (ipcsock.connect(o.urlipc_filename.c_str()) < 0)  	// conn to dedicated url cach proc
+    {
         syslog(LOG_ERR, "Error connecting via ipc to url cache: %s", strerror(errno));
         ipcsock.close();
         return false;
     }
     std::string myurl(" ");
     myurl += url.after("://").toCharArray();
-    myurl[0] = fg + 1;
+    myurl[0] = fg+1;
     myurl += "\n";
 #ifdef DGDEBUG
     std::cout << dbgPeerPort << " -sending cache search request: " << myurl;
 #endif
-    try {
-        ipcsock.writeString(myurl.c_str()); // throws on err
-    } catch (std::exception &e) {
+    try    {
+        ipcsock.writeString(myurl.c_str());  // throws on err
+    }
+    catch (std::exception & e)    {
 #ifdef DGDEBUG
         std::cerr << dbgPeerPort << " -Exception writing to url cache" << std::endl;
         std::cerr << e.what() << std::endl;
@@ -104,9 +106,10 @@ bool wasClean(HTTPHeader &header, String &url, const int fg)
         syslog(LOG_ERR, "%s", e.what());
     }
     char reply;
-    try {
-        ipcsock.readFromSocket(&reply, 1, 0, 6); // throws on err
-    } catch (std::exception &e) {
+    try    {
+        ipcsock.readFromSocket(&reply, 1, 0, 6);  // throws on err
+    }
+    catch (std::exception & e)    {
 #ifdef DGDEBUG
         std::cerr << dbgPeerPort << " -Exception reading from url cache" << std::endl;
         std::cerr << e.what() << std::endl;
@@ -124,11 +127,12 @@ void addToClean(String &url, const int fg)
     if (reloadconfig)
         return;
     UDSocket ipcsock;
-    if (ipcsock.getFD() < 0) {
+    if (ipcsock.getFD() < 0)    {
         syslog(LOG_ERR, "Error creating ipc socket to url cache");
         return;
     }
-    if (ipcsock.connect(o.urlipc_filename.c_str()) < 0) { // conn to dedicated url cach proc
+    if (ipcsock.connect(o.urlipc_filename.c_str()) < 0)  	// conn to dedicated url cach proc
+    {
         syslog(LOG_ERR, "Error connecting via ipc to url cache: %s", strerror(errno));
 #ifdef DGDEBUG
         std::cout << dbgPeerPort << " -Error connecting via ipc to url cache: " << strerror(errno) << std::endl;
@@ -137,11 +141,12 @@ void addToClean(String &url, const int fg)
     }
     std::string myurl("g ");
     myurl += url.after("://").toCharArray();
-    myurl[1] = fg + 1;
+    myurl[1] = fg+1;
     myurl += "\n";
-    try {
-        ipcsock.writeString(myurl.c_str()); // throws on err
-    } catch (std::exception &e) {
+    try    {
+        ipcsock.writeString(myurl.c_str());  // throws on err
+    }
+    catch (std::exception & e)    {
 #ifdef DGDEBUG
         std::cerr << dbgPeerPort << " -Exception adding to url cache" << std::endl;
         std::cerr << e.what() << std::endl;
@@ -169,10 +174,10 @@ std::string ConnectionHandler::miniURLEncode(const char *s)
     std::string encoded;
     char *buf = new char[3];
     unsigned char c;
-    for (int i = 0; i < (signed)strlen(s); i++) {
+    for (int i = 0; i < (signed) strlen(s); i++)    {
         c = s[i];
         // allowed characters in a url that have non special meaning
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))        {
             encoded += c;
             continue;
         }
@@ -181,7 +186,7 @@ std::string ConnectionHandler::miniURLEncode(const char *s)
         encoded += "%";
         encoded += buf;
     }
-    delete[] buf;
+    delete[]buf;
     return encoded;
 }
 
@@ -195,11 +200,11 @@ String ConnectionHandler::hashedURL(String *url, int filtergroup, std::string *c
     magic += clientip->c_str();
     magic += timecode;
     String res(infectionbypass ? "GIBYPASS=" : "GBYPASS=");
-    if (!url->after("://").contains("/")) {
+    if (!url->after("://").contains("/"))    {
         String newurl((*url));
         newurl += "/";
         res += newurl.md5(magic.toCharArray());
-    } else {
+    }    else    {
         res += url->md5(magic.toCharArray());
     }
     res += timecode;
@@ -207,7 +212,7 @@ String ConnectionHandler::hashedURL(String *url, int filtergroup, std::string *c
 }
 
 // create temporary bypass cookie
-String ConnectionHandler::hashedCookie(String *url, const char *magic, std::string *clientip, int bypasstimestamp)
+String ConnectionHandler::hashedCookie(String * url, const char *magic, std::string * clientip, int bypasstimestamp)
 {
     String timecode(bypasstimestamp);
     String data(magic);
@@ -223,26 +228,27 @@ String ConnectionHandler::hashedCookie(String *url, const char *magic, std::stri
 }
 
 // when using IP address counting - have we got any remaining free IPs?
-bool ConnectionHandler::gotIPs(std::string ipstr)
-{
+bool ConnectionHandler::gotIPs(std::string ipstr){
     if (reloadconfig)
         return false;
     UDSocket ipcsock;
-    if (ipcsock.getFD() < 0) {
+    if (ipcsock.getFD() < 0)    {
         syslog(LOG_ERR, "Error creating ipc socket to IP cache");
         return false;
     }
     // TODO: put in proper file name check
-    if (ipcsock.connect(o.ipipc_filename.c_str()) < 0) { // connect to dedicated ip list proc
+    if (ipcsock.connect(o.ipipc_filename.c_str()) < 0)    // connect to dedicated ip list proc
+    {
         syslog(LOG_ERR, "Error connecting via ipc to IP cache: %s", strerror(errno));
         return false;
     }
     char reply;
     ipstr += '\n';
-    try {
+    try    {
         ipcsock.writeToSockete(ipstr.c_str(), ipstr.length(), 0, 6);
-        ipcsock.readFromSocket(&reply, 1, 0, 6); // throws on err
-    } catch (std::exception &e) {
+        ipcsock.readFromSocket(&reply, 1, 0, 6);  // throws on err
+    }
+    catch (std::exception& e)    {
 #ifdef DGDEBUG
         std::cerr << dbgPeerPort << " -Exception with IP cache" << std::endl;
         std::cerr << e.what() << std::endl;
@@ -255,10 +261,11 @@ bool ConnectionHandler::gotIPs(std::string ipstr)
 }
 
 // send a file to the client - used during bypass of blocked downloads
-off_t ConnectionHandler::sendFile(Socket *peerconn, String &filename, String &filemime, String &filedis, String &url)
+off_t ConnectionHandler::sendFile(Socket * peerconn, String & filename, String & filemime, String & filedis, String &url)
 {
     int fd = open(filename.toCharArray(), O_RDONLY);
-    if (fd < 0) { // file access error
+    if (fd < 0)  		// file access error
+    {
         syslog(LOG_ERR, "Error reading file to send");
 #ifdef DGDEBUG
         std::cout << dbgPeerPort << " -Error reading file to send:" << filename << std::endl;
@@ -272,16 +279,17 @@ off_t ConnectionHandler::sendFile(Socket *peerconn, String &filename, String &fi
     off_t filesize = lseek(fd, 0, SEEK_END);
     lseek(fd, 0, SEEK_SET);
     String message("HTTP/1.0 200 OK\nContent-Type: " + filemime + "\nContent-Length: " + String(filesize));
-    if (filedis.length() == 0) {
+    if (filedis.length() == 0)    {
         filedis = url.before("?");
         while (filedis.contains("/"))
             filedis = filedis.after("/");
     }
     message += "\nContent-disposition: attachment; filename=" + filedis;
     message += "\n\n";
-    try {
+    try    {
         peerconn->writeString(message.toCharArray());
-    } catch (std::exception &e) {
+    }
+    catch (std::exception & e)    {
         close(fd);
         return 0;
     }
@@ -290,27 +298,27 @@ off_t ConnectionHandler::sendFile(Socket *peerconn, String &filename, String &fi
     off_t sent = 0;
     int rc;
     char *buffer = new char[250000];
-    while (sent < filesize) {
+    while (sent < filesize)    {
         rc = readEINTR(fd, buffer, 250000);
 #ifdef DGDEBUG
         std::cout << dbgPeerPort << " -reading send file rc:" << rc << std::endl;
 #endif
-        if (rc < 0) {
+        if (rc < 0)        {
 #ifdef DGDEBUG
             std::cout << dbgPeerPort << " -error reading send file so throwing exception" << std::endl;
 #endif
-            delete[] buffer;
+            delete[]buffer;
             throw std::exception();
         }
-        if (rc == 0) {
+        if (rc == 0)        {
 #ifdef DGDEBUG
             std::cout << dbgPeerPort << " -got zero bytes reading send file" << std::endl;
 #endif
-            break; // should never happen
+            break;  // should never happen
         }
         // as it's cached to disk the buffer must be reasonably big
-        if (!peerconn->writeToSocket(buffer, rc, 0, 100)) {
-            delete[] buffer;
+        if (!peerconn->writeToSocket(buffer, rc, 0, 100))        {
+            delete[]buffer;
             throw std::exception();
         }
         sent += rc;
@@ -318,10 +326,212 @@ off_t ConnectionHandler::sendFile(Socket *peerconn, String &filename, String &fi
         std::cout << dbgPeerPort << " -total sent from temp:" << sent << std::endl;
 #endif
     }
-    delete[] buffer;
+    delete[]buffer;
     close(fd);
     return sent;
 }
+
+int ConnectionHandler::handleEcapReqmod(UDSocket &ecappeer){
+    /*
+    REQMOD: Grab the headers and scan/modify as necessary.
+    If using the virgin headers, send 'v' to ecappeer.
+    If modifying the headers, send 'm' to ecappeer, followed by a dump of the modified header.
+    	-This does not check the request body
+    If blocking/denying the request, send back 'b' and see the RESPMOD comment below for an idea of how that could work.
+    */
+
+    NaughtyFilter checkme;
+    HTTPHeader requestHeader;
+	//Set header read timeout - waiting forever is a bad thing
+    requestHeader.setTimeout(o.pcon_timeout);
+
+	///
+	///Cleanup from previous REQMOD connections.  These variables are class-wide and declared in the header.
+	///
+    if(clienthost){
+        delete clienthost;
+    }
+    clienthost = NULL;  // to hold the client hostname
+    matchedip = false;  //no way we could have matched yet
+    urlparams.clear();  // clear list of parameters extracted from URL
+    postparts.clear();  // clear out info about POST data
+
+    ///
+    ///Setup for this REQMOD connection
+    ///
+    bool blockIt = false;
+    bool urlModified = false;
+    bool headerModified = false;
+    std::string exceptionreason;  // to hold the reason for not blocking
+    std::deque<CSPlugin*> requestscanners;  //the request scanners
+    ScanFlags flags;  //The scanner flags
+    char rBuf[1];
+    int headersent = 0;  //Whether the header was sent. 0=none,1=first line,2=all
+    int message_no = 0;
+    int filtergroup = 0;  //Everyone is in the '0' filtergroup
+    int gmode;
+    int rc = 0;
+    std::string mimetype("-");
+    String url;
+    String logurl;
+    String urld;
+    String urldomain;
+    std::string appender("");
+    std::string empty("");
+    String emptyS(empty.c_str());
+
+    const char FLAG_USE_VIRGIN = 'v';
+
+    try{
+        //The eCAP peer is going to just dump over the request header.  Therefore, read it in.
+        requestHeader.in(&ecappeer, true, true);  // get header from eCAP client, allowing persistency and breaking on reloadconfig
+
+        url = requestHeader.getUrl(false, false);  //No MITM here - Squid does that
+        logurl = requestHeader.getLogUrl(false, false);  //No MITM here - Squid does that
+        urld = requestHeader.decode(url);
+        urldomain = url.getHostname();
+#ifdef DGDEBUG
+        std::cout << "requestType|url|logUrl|urld|urldomain: " << requestHeader.requestType() << '|'
+            << url << '|' << logurl << '|' << urld << '|' << urldomain << std::endl;
+#endif
+
+        //A CONNECT request should either be ignored
+        //OR check the destination and block if necessary
+        if(requestHeader.requestType() == "CONNECT")
+        {
+            ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
+            return 0;
+        }
+
+        // checks for bad URLs to prevent security holes/domain obfuscation.
+        if (requestHeader.malformedURL(url))
+        {
+#ifdef DGDEBUG
+            std::cout << "Malformed URL: " << url << std::endl;
+#endif
+            std::string badReq("400 Bad Request");
+            std::string explan("Your browser made an invalid request, which cannot be fulfilled");
+            //Block page signal
+            ecappeer.writeToSocket(&FLAG_BLOCK, 1, 0, 0);
+            //Blockpage headers
+            ecappeer.writeToSocket(blockHeaders.c_str(), blockHeaders.length(), 0, 0);
+            //Read back msg recvd signal
+            rc = ecappeer.readFromSocket(rBuf, 1, 0, 10);
+#ifdef DGDEBUG
+            std::cout << "Received from adapter: " << rBuf[0] << std::endl;
+#endif
+            if(rBuf[0] == FLAG_MSG_RECVD){
+                o.fg[filtergroup]->getHTMLTemplate()->display(&ecappeer, &url, badReq,
+                    explan, empty, &empty, &empty, &empty, 0, emptyS);
+            } else{
+#ifdef DGDEBUG
+                std::cout << "eCAP adapter did not return expected signal" << std::endl;
+                std::cout << "Malformed URL, but did not receive 'r'. Recvd "
+                    << rBuf[0] << std::endl;
+#endif
+            }
+            //Success
+            return 0;
+        }
+
+        //Modify the request URL (redirects to safe search stuff?)
+        urlModified = requestHeader.urlRegExp(filtergroup);
+        headerModified = requestHeader.headerRegExp(filtergroup);
+
+// The new way to check requests
+//    void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme,
+//        String *urld, String *url, int filtergroup)
+
+        requestChecks(&requestHeader, &checkme, &urld, &url, 0);
+        if(checkme.isItNaughty){
+#ifdef DGDEBUG
+            std::cout << "Was naughty, blocked: " << checkme.whatIsNaughty << '|'
+                 << checkme.whatIsNaughtyCategories << std::endl;
+#endif
+            ecappeer.writeToSocket(&FLAG_BLOCK, 1, 0, 0);
+            //Blockpage headers
+            ecappeer.writeToSocket(blockHeaders.c_str(), blockHeaders.length(), 0, 0);
+            //Read back msg recvd signal
+            rc = ecappeer.readFromSocket(rBuf, 1, 0, 10);
+#ifdef DGDEBUG
+            std::cout << "Received from adapter: " << rBuf[0] << std::endl;
+#endif
+            if(rBuf[0] == FLAG_MSG_RECVD){
+                o.fg[filtergroup]->getHTMLTemplate()->display(&ecappeer, &url,
+                    checkme.whatIsNaughty, checkme.whatIsNaughtyCategories,
+                    empty, &empty, &empty, &empty, 0, emptyS);
+            }
+            return 0;
+        }
+
+#ifdef DGDEBUG
+        std::cout << "request URL/Header modified?: " << urlModified << "/" << headerModified << std::endl;
+        url = requestHeader.getUrl(false, false);  //No MITM here - Squid does that
+        logurl = requestHeader.getLogUrl(false, false);  //No MITM here - Squid does that
+        urld = requestHeader.decode(url);
+        urldomain = url.getHostname();
+        std::cout << "After URL / Header modifications" << std::endl;
+        std::cout << "requestType|url|logUrl|urld|urldomain: " << requestHeader.requestType() << '|'
+            << url << '|' << logurl << '|' << urld << '|' << urldomain << std::endl;
+#endif
+        if(urlModified || headerModified){
+#ifdef DGDEBUG
+            std::cout << "Modifying request, getUrl() = " << requestHeader.getUrl() << std::endl;
+            std::cout << "Modifying request, header.front() = " << requestHeader.header.front() << std::endl;
+#endif
+            ecappeer.writeToSocket(&FLAG_MODIFY, 1, 0, 0);
+            requestHeader.out(&ecappeer);
+            return 0;
+        }
+
+    } catch (postfilter_exception &e){
+#ifdef DGDEBUG
+        std::cerr << dbgPeerPort << " -connection handler caught a POST filtering exception: " << e.what() << std::endl;
+#endif
+        syslog(LOG_ERR, "POST filtering exception: %s", e.what());
+        //No need to call ecappeer.close() before returning.
+        //The destructor for ecappeer is called up in FatController, which auto-closes the handle
+        return 0;
+    } catch (std::exception & e)    {
+#ifdef DGDEBUG
+        std::cerr << dbgPeerPort << " -connection handler caught an exception: " << e.what() << std::endl;
+#endif
+        //No need to call ecappeer.close() before returning.
+        //The destructor for ecappeer is called up in FatController, which auto-closes the handle
+        return 0;
+    }
+
+    //If none of the above scans discover a reason to block of modify,
+    //then just allow the original request
+    ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
+    //No need to call ecappeer.close() before returning.
+    //The destructor for ecappeer is called up in FatController, which auto-closes the handle
+    return 0;
+}
+
+int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
+    /*
+    RESPMOD: Grab the response headers and body, then scan as necessary.
+    If using the virgin response, send 'v' to ecappeer.
+    If blocking, send 'b' to ecappeer, followed by new response headers and body.
+    	This is the most difficult part - dumping data, then converting it to the necessary eCAP objects on the other side.
+    	Maybe I should give the eCAP adapters a reference to a file which contains the raw 'this page is denied/blocked' html,
+    	and have this method return nothing more than the 'b' followed by the reason it was denied.  eCAP adapters can use
+    	canned response	headers and a regex to replace placeholder reasons with the real reasons.
+    		*Seems like I would need two files: DeniedHeaders.txt and DeniedPage.txt
+    		*One header per line in DeniedHeaders (for standardization and ease of use)
+    		*Static data for DeniedPage.txt (read in, regex modify, dump data)
+    	The other idea is for e2guardian to make two in-memory file handles with global access permissions
+    		*One for headers
+    		*One for denied page body
+    		Send the file handles to the eCAP client and have it write back 'x' or something when it's done with them.
+    */
+
+	//Currently just sending back the 'use virgin' signal for testing
+    ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
+    return 0;
+}
+
 
 // pass data between proxy and client, filtering as we go.
 // this is the only public function of ConnectionHandler
@@ -336,9 +546,8 @@ int ConnectionHandler::handlePeer(Socket &peerconn, String &ip)
     Socket proxysock;
 
     return handleConnection(peerconn, ip, false, proxysock);
-
-    //return;
 }
+
 
 // all content blocking/filtering is triggered from calls inside here
 int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismitm, Socket &proxysock)
@@ -348,8 +557,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
 
     peerconn.setTimeout(o.proxy_timeout);
 
-    HTTPHeader docheader; // to hold the returned page header from proxy
-    HTTPHeader header; // to hold the incoming client request header
+    HTTPHeader docheader;  // to hold the returned page header from proxy
+    HTTPHeader header;  // to hold the incoming client request header
 
     // set a timeout as we don't want blocking 4 eva
     // this also sets how long a peerconn will wait for other requests
@@ -393,8 +602,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
     int message_no = 0;
 
     // Content scanning plugins to use for request (POST) & response data
-    std::deque<CSPlugin *> requestscanners;
-    std::deque<CSPlugin *> responsescanners;
+    std::deque<CSPlugin*> requestscanners;
+    std::deque<CSPlugin*> responsescanners;
 
     std::string mimetype("-");
 
@@ -403,16 +612,16 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
     String urld;
     String urldomain;
 
-    std::string exceptionreason; // to hold the reason for not blocking
+    std::string exceptionreason;  // to hold the reason for not blocking
     std::string exceptioncat;
 
-    off_t docsize = 0; // to store the size of the returned document for logging
+    off_t docsize = 0;  // to store the size of the returned document for logging
 
-    std::string clientip(ip.toCharArray()); // hold the clients ip
+    std::string clientip(ip.toCharArray());  // hold the clients ip
 
     delete clienthost;
 
-    clienthost = NULL; // and the hostname, if available
+    clienthost = NULL;  // and the hostname, if available
     matchedip = false;
 
     // clear list of parameters extracted from URL
@@ -421,14 +630,14 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
     // clear out info about POST data
     postparts.clear();
 
-#ifdef DGDEBUG // debug stuff surprisingly enough
+#ifdef DGDEBUG			// debug stuff surprisingly enough
     std::cout << dbgPeerPort << " -got peer connection" << std::endl;
     std::cout << dbgPeerPort << clientip << std::endl;
 #endif
     // proxysock now passed to function
     // Socket proxysock;
 
-    try {
+    try    {
         int rc;
 
 #ifdef DGDEBUG
@@ -448,7 +657,7 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
 
         FDTunnel fdt;
         NaughtyFilter checkme;
-        AuthPlugin *auth_plugin = NULL;
+        AuthPlugin* auth_plugin = NULL;
 
         // RFC states that connections are persistent
         bool persistOutgoing = true;
@@ -456,36 +665,36 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
         bool persistProxy = true;
 
         bool firsttime = true;
-        header.in(&peerconn, true, true); // get header from client, allowing persistency and breaking on reloadconfig
-        //
-        // End of set-up section
-        //
-        // Start of main loop
-        //
+        header.in(&peerconn, true, true);  // get header from client, allowing persistency and breaking on reloadconfig
+//
+// End of set-up section
+//
+// Start of main loop
+//
 
         // maintain a persistent connection
-        while ((firsttime || persistPeer) && !reloadconfig) {
+        while ((firsttime || persistPeer) && !reloadconfig)        {
 #ifdef DGDEBUG
             std::cout << " firsttime =" << firsttime << "ismitm =" << ismitm << " clientuser =" << clientuser << " group = " << filtergroup << std::endl;
 #endif
-            if (firsttime) {
+            if (firsttime)            {
                 // reset flags & objects next time round the loop
                 firsttime = false;
 
                 // quick trick for the very first connection :-)
                 if (!ismitm)
                     persistProxy = false;
-            } else {
-// another round...
+            }            else            {
+                // another round...
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -persisting (count " << ++pcount << ")" << std::endl;
                 syslog(LOG_ERR, "Served %d requests on this connection so far - ismitm=%d", pcount, ismitm);
                 std::cout << dbgPeerPort << " - " << clientip << std::endl;
 #endif
                 header.reset();
-                try {
-                    header.in(&peerconn, true, true); // get header from client, allowing persistency and breaking on reloadconfig
-                } catch (std::exception &e) {
+                try                {
+                    header.in(&peerconn, true, true);  // get header from client, allowing persistency and breaking on reloadconfig
+                }                catch (std::exception &e)                {
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -Persistent connection closed" << std::endl;
 #endif
@@ -495,7 +704,9 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 // we will actually need to do *lots* of resetting of flags etc. here for pconns to work
                 gettimeofday(&thestart, NULL);
 
-                waschecked = false; // flags
+
+
+                waschecked = false;  // flags
                 wasrequested = false;
                 isexception = false;
                 isourwebserver = false;
@@ -522,13 +733,13 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 requestscanners.clear();
                 responsescanners.clear();
 
-                headersent = 0; // 0=none,1=first line,2=all
+                headersent = 0;  // 0=none,1=first line,2=all
                 delete clienthost;
-                clienthost = NULL; // and the hostname, if available
+                clienthost = NULL;  // and the hostname, if available
                 matchedip = false;
                 urlparams.clear();
                 postparts.clear();
-                docsize = 0; // to store the size of the returned document for logging
+                docsize = 0;  // to store the size of the returned document for logging
                 message_no = 0;
                 mimetype = "-";
                 exceptionreason = "";
@@ -555,29 +766,26 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
             is_ssl = header.requestType().startsWith("CONNECT");
 
             //If proxy connction is not persistent...
-            if (!persistProxy) {
-                try {
+            if (!persistProxy)            {
+                try                {
                     // ...connect to proxy
-                    for (int i = 0; i < o.proxy_timeout; i++) {
+                    for (int i = 0; i < o.proxy_timeout; i++)                    {
                         rc = proxysock.connect(o.proxy_ip, o.proxy_port);
-                        if (!rc) {
-                            if (i > 0) {
-                                syslog(LOG_ERR, "Proxy responded after %d retrys", i);
-                            }
+                        if (!rc)                        {
                             break;
-                        } else {
+                        }                        else                        {
                             sleep(1);
                         }
                     }
-                    if (rc) {
+                    if (rc)                    {
 #ifdef DGDEBUG
                         std::cerr << dbgPeerPort << " -Error connecting to proxy" << std::endl;
 #endif
-                        //                                                syslog(LOG_ERR, "Error connecting to proxy - ip client: %s destination: %s - %s", clientip.c_str(), urldomain.c_str(),strerror(errno));
-                        syslog(LOG_ERR, "Proxy not responding after %d trys - ip client: %s destination: %s - %s", o.proxy_timeout, clientip.c_str(), urldomain.c_str(), strerror(errno));
+//                                                syslog(LOG_ERR, "Error connecting to proxy - ip client: %s destination: %s - %s", clientip.c_str(), urldomain.c_str(),strerror(errno));
                         return 3;
                     }
-                } catch (std::exception &e) {
+                }
+                catch (std::exception & e)                {
 #ifdef DGDEBUG
                     std::cerr << dbgPeerPort << " -exception while creating proxysock: " << e.what() << std::endl;
 #endif
@@ -589,8 +797,9 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
 #endif
 
             // checks for bad URLs to prevent security holes/domain obfuscation.
-            if (header.malformedURL(url)) {
-                try {
+            if (header.malformedURL(url))
+            {
+                try                {
                     // writestring throws exception on error/timeout
                     peerconn.writeString("HTTP/1.0 400 Bad Request\nContent-Type: text/html\n\n");
                     peerconn.writeString("<HTML><HEAD><TITLE>e2guardian - 400 Bad Request</TITLE></HEAD><BODY><H1>e2guardian - 400 Bad Request</H1>");
@@ -598,102 +807,112 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     // The requested URL is malformed.
                     peerconn.writeString(o.language_list.getTranslation(200));
                     peerconn.writeString("</BODY></HTML>\n");
-                } catch (std::exception &e) {
+                }
+                catch (std::exception & e)                {
                 }
                 break;
             }
 
             urld = header.decode(url);
 
-            if (urldomain == "internal.test.e2guardian.org") {
-                try { // writestring throws exception on error/timeout
+            if (urldomain == "internal.test.e2guardian.org")            {
+                try  	// writestring throws exception on error/timeout
+                {
                     peerconn.writeString("HTTP/1.0 200 \nContent-Type: text/html\n\n<HTML><HEAD><TITLE>e2guardian internal test</TITLE></HEAD><BODY><H1>e2guardian internal test OK</H1> ");
                     peerconn.writeString("</BODY></HTML>\n");
-                } catch (std::exception &e) {
                 }
-                proxysock.close(); // close connection to proxy
+                catch (std::exception & e)                {
+                }
+                proxysock.close();  // close connection to proxy
                 break;
             }
 
-            // do total block list checking here
-            if (o.use_total_block_list && o.inTotalBlockList(urld)) {
+// do total block list checking here
+            if (o.use_total_block_list && o.inTotalBlockList(urld))            {
                 //if ( header.requestType().startsWith("CONNECT"))
-                if (is_ssl) {
-                    try { // writestring throws exception on error/timeout
+                if (is_ssl )                {
+                    try  	// writestring throws exception on error/timeout
+                    {
                         peerconn.writeString("HTTP/1.0 404 Banned Site\nContent-Type: text/html\n\n<HTML><HEAD><TITLE>Protex - Banned Site</TITLE></HEAD><BODY><H1>Protex - Banned Site</H1> ");
                         peerconn.writeString(logurl.c_str());
                         // The requested URL is malformed.
                         peerconn.writeString("</BODY></HTML>\n");
-                    } catch (std::exception &e) {
                     }
-                } else { // write blank graphic
-                    try {
-                        peerconn.writeString("HTTP/1.0 200 OK\n");
-                    } catch (std::exception &e) {
+                    catch (std::exception & e)                    {
+                    }
+                }                else    // write blank graphic
+                {
+                    try                    {                        peerconn.writeString("HTTP/1.0 200 OK\n");
+                    }
+                    catch (std::exception & e)                    {
                     }
                     o.banned_image.display(&peerconn);
                 }
-                proxysock.close(); // close connection to proxy
+                proxysock.close();  // close connection to proxy
                 break;
             }
 
             // don't let the client connection persist if the client doesn't want it to.
             persistOutgoing = header.isPersistent();
-            //
-            //
-            // Start of Authentication Checks
-            //
-            //
+//
+//
+// Start of Authentication Checks
+//
+//
             // don't have credentials for this connection yet? get some!
-            if (!persistent_authed) {
+            if (!persistent_authed)            {
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -Not got persistent credentials for this connection - querying auth plugins" << std::endl;
 #endif
                 bool dobreak = false;
-                if (o.authplugins.size() != 0) {
+                if (o.authplugins.size() != 0)                {
                     // We have some auth plugins load
                     int authloop = 0;
                     String tmp;
 
-                    for (std::deque<Plugin *>::iterator i = o.authplugins_begin; i != o.authplugins_end; i++) {
+                    for (std::deque<Plugin*>::iterator i = o.authplugins_begin; i != o.authplugins_end; i++)                    {
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << " -Querying next auth plugin..." << std::endl;
 #endif
                         // try to get the username & parse the return value
-                        auth_plugin = (AuthPlugin *)(*i);
+                        auth_plugin = (AuthPlugin*)(*i);
 
                         // auth plugin selection for multi ports
-                        //
-                        //
-                        // Logic changed to allow auth scan with multiple ports as option to auth-port
-                        //       fixed mapping
-                        //
-                        if (o.map_auth_to_ports) {
-                            if (o.filter_ports.size() > 1) {
+//
+//
+// Logic changed to allow auth scan with multiple ports as option to auth-port
+//       fixed mapping
+//
+                        if (o.map_auth_to_ports)                        {
+                            if (o.filter_ports.size() > 1)                            {
                                 tmp = o.auth_map[peerconn.getPort()];
-                            } else {
+                            }
+                            else                            {
                                 // auth plugin selection for one port
                                 tmp = o.auth_map[authloop];
                                 authloop++;
                             }
 
-                            if (tmp.compare(auth_plugin->getPluginName().toCharArray()) == 0) {
+                            if (tmp.compare(auth_plugin->getPluginName().toCharArray()) == 0)                            {
                                 rc = auth_plugin->identify(peerconn, proxysock, header, clientuser);
-                            } else {
+                            }
+                            else                            {
                                 rc = DGAUTH_NOMATCH;
                             }
-                        } else {
+                        }
+                        else                        {
                             rc = auth_plugin->identify(peerconn, proxysock, header, clientuser);
                         }
 
-                        if (rc == DGAUTH_NOMATCH) {
+                        if (rc == DGAUTH_NOMATCH)                        {
 #ifdef DGDEBUG
-                            std::cout << "Auth plugin did not find a match; querying remaining plugins" << std::endl;
+                            std::cout<<"Auth plugin did not find a match; querying remaining plugins"<<std::endl;
 #endif
                             continue;
-                        } else if (rc == DGAUTH_REDIRECT) {
+                        }
+                        else if (rc == DGAUTH_REDIRECT)                        {
 #ifdef DGDEBUG
-                            std::cout << "Auth plugin told us to redirect client to \"" << clientuser << "\"; not querying remaining plugins" << std::endl;
+                            std::cout<<"Auth plugin told us to redirect client to \"" << clientuser << "\"; not querying remaining plugins"<<std::endl;
 #endif
                             // ident plugin told us to redirect to a login page
                             String writestring("HTTP/1.0 302 Redirect\r\nLocation: ");
@@ -702,22 +921,24 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                             peerconn.writeString(writestring.toCharArray());
                             dobreak = true;
                             break;
-                        } else if (rc == DGAUTH_OK_NOPERSIST) {
+                        }
+                        else if (rc == DGAUTH_OK_NOPERSIST)                        {
 #ifdef DGDEBUG
-                            std::cout << "Auth plugin  returned OK but no persist not setting persist auth" << std::endl;
+                            std::cout<<"Auth plugin  returned OK but no persist not setting persist auth"<<std::endl;
 #endif
                             overide_persist = true;
-                        } else if (rc < 0) {
+                        }
+                        else if (rc < 0)                        {
                             if (!is_daemonised)
-                                std::cerr << "Auth plugin returned error code: " << rc << std::endl;
-                            syslog(LOG_ERR, "Auth plugin returned error code: %d", rc);
+                                std::cerr<<"Auth plugin returned error code: "<<rc<<std::endl;
+                            syslog(LOG_ERR,"Auth plugin returned error code: %d", rc);
                             dobreak = true;
                             break;
                         }
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << " -Auth plugin found username " << clientuser << " (" << oldclientuser << "), now determining group" << std::endl;
 #endif
-                        if (clientuser == oldclientuser) {
+                        if (clientuser == oldclientuser)                        {
 #ifdef DGDEBUG
                             std::cout << dbgPeerPort << " -Same user as last time, re-using old group no." << std::endl;
 #endif
@@ -727,28 +948,31 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                         }
                         // try to get the filter group & parse the return value
                         rc = auth_plugin->determineGroup(clientuser, filtergroup);
-                        if (rc == DGAUTH_OK) {
+                        if (rc == DGAUTH_OK)                        {
 #ifdef DGDEBUG
-                            std::cout << "Auth plugin found username & group; not querying remaining plugins" << std::endl;
+                            std::cout<<"Auth plugin found username & group; not querying remaining plugins"<<std::endl;
 #endif
                             authed = true;
                             break;
-                        } else if (rc == DGAUTH_NOMATCH) {
+                        }
+                        else if (rc == DGAUTH_NOMATCH)                        {
 #ifdef DGDEBUG
-                            std::cout << "Auth plugin did not find a match; querying remaining plugins" << std::endl;
+                            std::cout<<"Auth plugin did not find a match; querying remaining plugins"<<std::endl;
 #endif
                             continue;
-                        } else if (rc == DGAUTH_NOUSER) {
+                        }
+                        else if (rc == DGAUTH_NOUSER)                        {
 #ifdef DGDEBUG
-                            std::cout << "Auth plugin found username \"" << clientuser << "\" but no associated group; not querying remaining plugins" << std::endl;
+                            std::cout<<"Auth plugin found username \"" << clientuser << "\" but no associated group; not querying remaining plugins"<<std::endl;
 #endif
-                            filtergroup = 0; //default group - one day configurable?
+                            filtergroup = 0;  //default group - one day configurable?
                             authed = true;
                             break;
-                        } else if (rc < 0) {
+                        }
+                        else if (rc < 0)                        {
                             if (!is_daemonised)
-                                std::cerr << "Auth plugin returned error code: " << rc << std::endl;
-                            syslog(LOG_ERR, "Auth plugin returned error code: %d", rc);
+                                std::cerr<<"Auth plugin returned error code: "<<rc<<std::endl;
+                            syslog(LOG_ERR,"Auth plugin returned error code: %d", rc);
                             dobreak = true;
                             break;
                         }
@@ -758,7 +982,7 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     if (dobreak)
                         break;
 
-                    if ((!authed) || (filtergroup < 0) || (filtergroup >= o.numfg)) {
+                    if ((!authed) || (filtergroup < 0) || (filtergroup >= o.numfg))                    {
 #ifdef DGDEBUG
                         if (!authed)
                             std::cout << dbgPeerPort << " -No identity found; using defaults" << std::endl;
@@ -776,22 +1000,22 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                             std::cout << dbgPeerPort << " -No loaded auth plugins require parent proxy queries; enabling pre-emptive blocking despite lack of authentication" << std::endl;
 #endif
                         clientuser = "-";
-                        filtergroup = 0; //default group - one day configurable?
-                    } else {
+                        filtergroup = 0;  //default group - one day configurable?
+                    }                    else                    {
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << " -Identity found; caching username & group" << std::endl;
 #endif
-                        if (auth_plugin->is_connection_based && !overide_persist) {
+                        if (auth_plugin->is_connection_based && !overide_persist)                        {
 #ifdef DGDEBUG
-                            std::cout << "Auth plugin is for a connection-based auth method - keeping credentials for entire connection" << std::endl;
+                            std::cout<<"Auth plugin is for a connection-based auth method - keeping credentials for entire connection"<<std::endl;
 #endif
                             persistent_authed = true;
                         }
                         oldclientuser = clientuser;
                         oldfg = filtergroup;
                     }
-                } else {
-// We don't have any auth plugins loaded
+                }                else                {
+                    // We don't have any auth plugins loaded
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -No auth plugins loaded; using defaults & feigning persistency" << std::endl;
 #endif
@@ -800,8 +1024,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     filtergroup = 0;
                     persistent_authed = true;
                 }
-            } else {
-// persistent_authed == true
+            }            else            {
+                // persistent_authed == true
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -Already got credentials for this connection - not querying auth plugins" << std::endl;
 #endif
@@ -821,37 +1045,31 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
 //
 //
 
-#ifdef __SSLMITM
-            //			Set if candidate for MITM
-            //			(Exceptions will not go MITM)
-            ismitmcandidate = is_ssl && o.fg[filtergroup]->ssl_mitm && (header.port == 443);
-#endif
-
-            //
-            //
-            // Now check if user or machine is banned and room-based checking
-            //
-            //
+//
+//
+// Now check if user or machine is banned and room-based checking
+//
+//
             // filter group modes are: 0 = banned, 1 = filtered, 2 = exception.
             // is this user banned?
             isbanneduser = (gmode == 0);
 
-            if (o.use_xforwardedfor) {
+            if (o.use_xforwardedfor)            {
                 bool use_xforwardedfor;
-                if (o.xforwardedfor_filter_ip.size() > 0) {
+                if ( o.xforwardedfor_filter_ip.size() > 0 )                {
                     use_xforwardedfor = false;
-                    for (unsigned int i = 0; i < o.xforwardedfor_filter_ip.size(); i++) {
-                        if (strcmp(clientip.c_str(), o.xforwardedfor_filter_ip[i].c_str()) == 0) {
+                    for (unsigned int i = 0; i < o.xforwardedfor_filter_ip.size(); i++)                    {
+                        if (strcmp(clientip.c_str(),o.xforwardedfor_filter_ip[i].c_str()) == 0)                        {
                             use_xforwardedfor = true;
                             break;
                         }
                     }
-                } else {
+                }                else                {
                     use_xforwardedfor = true;
                 }
-                if (use_xforwardedfor == 1) {
+                if (use_xforwardedfor == 1)                {
                     std::string xforwardip(header.getXForwardedForIP());
-                    if (xforwardip.length() > 6) {
+                    if (xforwardip.length() > 6)                    {
                         clientip = xforwardip;
                     }
 #ifdef DGDEBUG
@@ -865,26 +1083,26 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
             bool part_banned;
             if (isbannedip)
                 matchedip = clienthost == NULL;
-            else {
-                if (o.inRoom(clientip, room, clienthost, &isbannedip, &part_banned, &isexception, urld)) {
+            else            {
+                if (o.inRoom(clientip, room, clienthost, &isbannedip, &part_banned, &isexception, urld))                {
 #ifdef DGDEBUG
-                    std::cout << " isbannedip = " << isbannedip << "ispart_banned = " << part_banned << " isexception = " << isexception << std::endl;
+                    std::cout <<  " isbannedip = " << isbannedip << "ispart_banned = " << part_banned << " isexception = " << isexception << std::endl;
 #endif
-                    if (isbannedip) {
+                    if (isbannedip)                    {
                         matchedip = clienthost == NULL;
                     }
-                    if (isexception) {
+                    if (isexception)                    {
                         // do reason codes etc
                         exceptionreason = o.language_list.getTranslation(630);
                         exceptionreason.append(room);
-                        exceptionreason.append(o.language_list.getTranslation(631));
+                        exceptionreason.append( o.language_list.getTranslation(631));
                         message_no = 632;
                     }
                 }
             }
 
-            if (o.forwarded_for) {
-                header.addXForwardedFor(clientip); // add squid-like entry
+            if (o.forwarded_for)            {
+                header.addXForwardedFor(clientip);  // add squid-like entry
             }
 
 #ifdef ENABLE_ORIG_IP
@@ -892,7 +1110,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
             // enabled, does the original IP address match one of those that the host
             // we are going to resolves to?
             // Resolves http://www.kb.cert.org/vuls/id/435052
-            if (o.get_orig_ip) {
+            if (o.get_orig_ip)
+            {
                 // XXX This will currently only work on Linux/Netfilter.
                 sockaddr_in origaddr;
                 socklen_t origaddrlen(sizeof(sockaddr_in));
@@ -900,19 +1119,23 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 // return the proxy server's IP, and not -1.  Hence, comparing the result with
                 // the return value of Socket::getLocalIP() should tell us that the client didn't
                 // connect transparently, and we can assume they aren't vulnerable.
-                if (getsockopt(peerconn.getFD(), SOL_IP, SO_ORIGINAL_DST, &origaddr, &origaddrlen) < 0) {
+                if (getsockopt(peerconn.getFD(), SOL_IP, SO_ORIGINAL_DST, &origaddr, &origaddrlen) < 0)
+                {
                     syslog(LOG_ERR, "Failed to get client's original destination IP: %s", strerror(errno));
                     break;
                 }
 
                 std::string orig_dest_ip(inet_ntoa(origaddr.sin_addr));
-                if (orig_dest_ip == peerconn.getLocalIP()) {
-// The destination IP before redirection is the same as the IP the
-// client has actually been connected to - they aren't connecting transparently.
+                if (orig_dest_ip == peerconn.getLocalIP())
+                {
+                    // The destination IP before redirection is the same as the IP the
+                    // client has actually been connected to - they aren't connecting transparently.
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -SO_ORIGINAL_DST and getLocalIP are equal; client not connected transparently" << std::endl;
 #endif
-                } else {
+                }
+                else
+                {
                     // Look up domain from request URL, and check orig IP against resolved IPs
                     addrinfo hints;
                     memset(&hints, 0, sizeof(hints));
@@ -921,15 +1144,18 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     hints.ai_protocol = IPPROTO_TCP;
                     addrinfo *results;
                     int result = getaddrinfo(urldomain.c_str(), NULL, &hints, &results);
-                    if (result) {
+                    if (result)
+                    {
                         freeaddrinfo(results);
                         syslog(LOG_ERR, "Cannot resolve hostname for host header checks: %s", gai_strerror(errno));
                         break;
                     }
                     addrinfo *current = results;
                     bool matched = false;
-                    while (current != NULL) {
-                        if (orig_dest_ip == inet_ntoa(((sockaddr_in *)(current->ai_addr))->sin_addr)) {
+                    while (current != NULL)
+                    {
+                        if (orig_dest_ip == inet_ntoa(((sockaddr_in*)(current->ai_addr))->sin_addr))
+                        {
 #ifdef DGDEBUG
                             std::cout << dbgPeerPort << urldomain << " matched to original destination of " << orig_dest_ip << std::endl;
 #endif
@@ -939,14 +1165,15 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                         current = current->ai_next;
                     }
                     freeaddrinfo(results);
-                    if (!matched) {
-// Host header/URL said one thing, but the original destination IP said another.
-// This is exactly the vulnerability we want to prevent.
+                    if (!matched)
+                    {
+                        // Host header/URL said one thing, but the original destination IP said another.
+                        // This is exactly the vulnerability we want to prevent.
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << urldomain << " DID NOT MATCH original destination of " << orig_dest_ip << std::endl;
 #endif
                         syslog(LOG_ERR, "Destination host of %s did not match the original destination IP of %s", urldomain.c_str(), orig_dest_ip.c_str());
-                        try {
+                        try                        {
                             // writestring throws exception on error/timeout
                             peerconn.writeString("HTTP/1.0 400 Bad Request\nContent-Type: text/html\n\n");
                             peerconn.writeString("<HTML><HEAD><TITLE>e2guardian - 400 Bad Request</TITLE></HEAD><BODY><H1>e2guardian - 400 Bad Request</H1>");
@@ -954,7 +1181,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                             // The requested URL is malformed.
                             peerconn.writeString(o.language_list.getTranslation(200));
                             peerconn.writeString("</BODY></HTML>\n");
-                        } catch (std::exception &e) {
+                        }
+                        catch (std::exception & e)                        {
                         }
                         break;
                     }
@@ -962,40 +1190,49 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
             }
 #endif
 
-            //
-            // Start of by pass
-            //
 
-            if (header.isScanBypassURL(&url, o.fg[filtergroup]->magic.c_str(), clientip.c_str())) {
+//
+// Start of by pass
+//
+
+            if (header.isScanBypassURL(&url, o.fg[filtergroup]->magic.c_str(), clientip.c_str())){
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -Scan Bypass URL match" << std::endl;
 #endif
                 isscanbypass = true;
                 isbypass = true;
                 exceptionreason = o.language_list.getTranslation(608);
-            } else if ((o.fg[filtergroup]->bypass_mode != 0) || (o.fg[filtergroup]->infection_bypass_mode != 0)) {
+            }
+            else if ((o.fg[filtergroup]->bypass_mode != 0) || (o.fg[filtergroup]->infection_bypass_mode != 0)){
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -About to check for bypass..." << std::endl;
 #endif
-                if (o.fg[filtergroup]->bypass_mode != 0)
+                if (o.fg[filtergroup]->bypass_mode != 0){
                     bypasstimestamp = header.isBypassURL(&url, o.fg[filtergroup]->magic.c_str(), clientip.c_str(), NULL);
-                if ((bypasstimestamp == 0) && (o.fg[filtergroup]->infection_bypass_mode != 0))
+				}
+                if ((bypasstimestamp == 0) && (o.fg[filtergroup]->infection_bypass_mode != 0)){
                     bypasstimestamp = header.isBypassURL(&url, o.fg[filtergroup]->imagic.c_str(), clientip.c_str(), &isvirusbypass);
-                if (bypasstimestamp > 0) {
+				}
+                if (bypasstimestamp > 0)                {
 #ifdef DGDEBUG
-                    if (isvirusbypass)
+                    if (isvirusbypass){
                         std::cout << dbgPeerPort << " -Infection bypass URL match" << std::endl;
-                    else
+					}
+                    else{
                         std::cout << dbgPeerPort << " -Filter bypass URL match" << std::endl;
+					}
 #endif
                     header.chopBypass(url, isvirusbypass);
-                    if (bypasstimestamp > 1) { // not expired
+                    if (bypasstimestamp > 1)  	// not expired
+                    {
                         isbypass = true;
                         // checkme: need a TR string for virus bypass
                         exceptionreason = o.language_list.getTranslation(606);
                     }
-                } else if (o.fg[filtergroup]->bypass_mode != 0) {
-                    if (header.isBypassCookie(urldomain, o.fg[filtergroup]->cookie_magic.c_str(), clientip.c_str())) {
+                }
+                else if (o.fg[filtergroup]->bypass_mode != 0)                {
+                    if (header.isBypassCookie(urldomain, o.fg[filtergroup]->cookie_magic.c_str(), clientip.c_str()))
+                    {
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << " -Bypass cookie match" << std::endl;
 #endif
@@ -1011,17 +1248,17 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
             }
 
 #ifdef DGDEBUG
-            if (isbypass) {
+            if (isbypass)            {
                 std::cout << dbgPeerPort << " -Bypass activated!" << std::endl;
             }
 #endif
-            //
-            // End of bypass
-            //
-            // Start of scan by pass
-            //
+//
+// End of bypass
+//
+// Start of scan by pass
+//
 
-            if (isscanbypass) {
+            if (isscanbypass)            {
                 //we need to decode the URL and send the temp file with the
                 //correct header to the client then delete the temp file
                 String tempfilename(url.after("GSBYPASS=").after("&N="));
@@ -1033,77 +1270,89 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 String rtype(header.requestType());
                 tempfilemime = tempfilemime.before("&D=");
                 tempfilename = o.download_dir + "/tf" + tempfilename.before("&M=");
-                try {
+                try                {
                     docsize = sendFile(&peerconn, tempfilename, tempfilemime, tempfiledis, url);
                     header.chopScanBypass(url);
                     url = header.getUrl();
                     //urld = header.decode(url);  // unneeded really
 
                     doLog(clientuser, clientip, logurl, header.port, exceptionreason,
-                        rtype, docsize, NULL, false, 0, isexception, false, &thestart,
-                        cachehit, 200, mimetype, wasinfected, wasscanned, 0, filtergroup,
-                        &header);
+                          rtype, docsize, NULL, false, 0, isexception, false, &thestart,
+                          cachehit, 200, mimetype, wasinfected, wasscanned, 0, filtergroup,
+                          &header);
 
-                    if (o.delete_downloaded_temp_files) {
+                    if (o.delete_downloaded_temp_files)                    {
                         unlink(tempfilename.toCharArray());
                     }
-                } catch (std::exception &e) {
+                }
+                catch (std::exception & e)                {
                 }
                 persistProxy = false;
-                proxysock.close(); // close connection to proxy
+                proxysock.close();  // close connection to proxy
                 break;
             }
-            //
-            // End of scan by pass
-            //
+//
+// End of scan by pass
+//
+
 
             char *retchar;
 
-            //
-            // Start of exception checking
-            //
+//
+// Start of exception checking
+//
             // being a banned user/IP overrides the fact that a site may be in the exception lists
             // needn't check these lists in bypass modes
-            if (!(isbanneduser || isbannedip || isbypass || isexception)) {
+            if (!(isbanneduser || isbannedip || isbypass || isexception ))            {
                 //bool is_ssl = header.requestType() == "CONNECT";
                 bool is_ip = isIPHostnameStrip(urld);
-                if ((gmode == 2)) { // admin user
+                if ((gmode == 2))  	// admin user
+                {
                     isexception = true;
                     exceptionreason = o.language_list.getTranslation(601);
                     message_no = 601;
                     // Exception client user match.
-                } else if (o.inExceptionIPList(&clientip, clienthost)) { // admin pc
+                }
+                else if (o.inExceptionIPList(&clientip, clienthost))  	// admin pc
+                {
                     matchedip = clienthost == NULL;
                     isexception = true;
                     exceptionreason = o.language_list.getTranslation(600);
                     // Exception client IP match.
                 }
-                if (!isexception && (*o.fg[filtergroup]).enable_local_list) {
+                if (!isexception && (*o.fg[filtergroup]).enable_local_list)                {
 
-                    if (is_ssl && (!ismitmcandidate) && ((retchar = o.fg[filtergroup]->inLocalBannedSSLSiteList(urld, false, is_ip, is_ssl)) != NULL)) { // blocked SSL site
-                        checkme.whatIsNaughty = o.language_list.getTranslation(580); // banned site
+                    if (is_ssl && (!ismitmcandidate) && ((retchar = o.fg[filtergroup]->inLocalBannedSSLSiteList(urld, false, is_ip, is_ssl)) != NULL))  	// blocked SSL site
+                    {
+                        checkme.whatIsNaughty = o.language_list.getTranslation(580);  // banned site
                         message_no = 580;
                         checkme.whatIsNaughty += retchar;
                         checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
                         checkme.isItNaughty = true;
                         checkme.whatIsNaughtyCategories = (*o.lm.l[o.fg[filtergroup]->local_banned_ssl_site_list]).lastcategory.toCharArray();
-                    } else if (o.fg[filtergroup]->inLocalExceptionSiteList(urld, false, is_ip, is_ssl)) { // allowed site
-                        if (o.fg[0]->isOurWebserver(url)) {
+                    }
+                    else if (o.fg[filtergroup]->inLocalExceptionSiteList(urld, false, is_ip, is_ssl))  	// allowed site
+                    {
+                        if (o.fg[0]->isOurWebserver(url))                        {
                             isourwebserver = true;
-                        } else {
+                        }                        else                        {
                             isexception = true;
                             exceptionreason = o.language_list.getTranslation(662);
                             message_no = 662;
                             // Exception site match.
                             exceptioncat = o.lm.l[o.fg[filtergroup]->local_exception_site_list]->lastcategory.toCharArray();
                         }
-                    } else if (o.fg[filtergroup]->inLocalExceptionURLList(urld, false, is_ip, is_ssl)) { // allowed url
+                    }
+                    else if (o.fg[filtergroup]->inLocalExceptionURLList(urld, false, is_ip, is_ssl))  	// allowed url
+                    {
                         isexception = true;
                         exceptionreason = o.language_list.getTranslation(663);
                         message_no = 663;
                         // Exception url match.
                         exceptioncat = o.lm.l[o.fg[filtergroup]->local_exception_url_list]->lastcategory.toCharArray();
-                    } else if ((!is_ssl) && embededRefererChecks(&header, &urld, &url, filtergroup)) { // referer exception
+                    }
+                    else if ((!is_ssl) && embededRefererChecks(&header, &urld, &url, filtergroup))   // referer exception
+                    {
                         isexception = true;
                         exceptionreason = o.language_list.getTranslation(620);
                         message_no = 620;
@@ -1112,24 +1361,25 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 }
             }
 
-            if ((*o.fg[filtergroup]).enable_local_list) {
-                if (authed && !(isexception || isourwebserver)) {
+
+            if ((*o.fg[filtergroup]).enable_local_list)            {
+                if (authed && !(isexception || isourwebserver))                {
                     // check if this is a search request
-                    if (!is_ssl)
-                        checkme.isSearch = header.isSearch(filtergroup);
+                    if (!is_ssl) checkme.isSearch = header.isSearch(filtergroup);
                     // add local grey and black checks
-                    if (!ismitmcandidate || o.fg[filtergroup]->only_mitm_ssl_grey) {
+                    if (!ismitmcandidate || o.fg[filtergroup]->only_mitm_ssl_grey)                    {
                         requestLocalChecks(&header, &checkme, &urld, &url, &clientip, &clientuser, filtergroup, isbanneduser, isbannedip, room);
                         message_no = checkme.message_no;
                     };
                 };
             }
             // orginal section only now called if local list not matched
-            if (!(isbanneduser || isbannedip || isbypass || isexception || checkme.isGrey || checkme.isItNaughty || o.fg[filtergroup]->use_only_local_allow_lists)) {
+            if (!(isbanneduser || isbannedip || isbypass || isexception || checkme.isGrey || checkme.isItNaughty || o.fg[filtergroup]->use_only_local_allow_lists ))            {
                 //bool is_ssl = header.requestType() == "CONNECT";
                 bool is_ip = isIPHostnameStrip(urld);
-                if (is_ssl && (!ismitmcandidate) && ((retchar = o.fg[filtergroup]->inBannedSSLSiteList(urld, false, is_ip, is_ssl)) != NULL)) { // blocked SSL site
-                    checkme.whatIsNaughty = o.language_list.getTranslation(520); // banned site
+                if (is_ssl && (!ismitmcandidate) && ((retchar = o.fg[filtergroup]->inBannedSSLSiteList(urld, false, is_ip, is_ssl)) != NULL))  	// blocked SSL site
+                {
+                    checkme.whatIsNaughty = o.language_list.getTranslation(520);  // banned site
                     message_no = 520;
                     checkme.whatIsNaughty += retchar;
                     checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
@@ -1137,44 +1387,51 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     checkme.whatIsNaughtyCategories = o.lm.l[o.fg[filtergroup]->banned_ssl_site_list]->lastcategory.toCharArray();
                 }
 
-                if (o.fg[filtergroup]->inExceptionSiteList(urld, true, is_ip, is_ssl)) // allowed site
+                if (o.fg[filtergroup]->inExceptionSiteList(urld, true, is_ip, is_ssl)) 		// allowed site
                 {
-                    if (o.fg[0]->isOurWebserver(url)) {
+                    if (o.fg[0]->isOurWebserver(url))                    {
                         isourwebserver = true;
-                    } else {
+                    }                    else                    {
                         isexception = true;
                         exceptionreason = o.language_list.getTranslation(602);
                         message_no = 602;
                         // Exception site match.
                         exceptioncat = o.lm.l[o.fg[filtergroup]->exception_site_list]->lastcategory.toCharArray();
                     }
-                } else if (o.fg[filtergroup]->inExceptionURLList(urld, true, is_ip, is_ssl)) { // allowed url
+                }
+                else if (o.fg[filtergroup]->inExceptionURLList(urld, true, is_ip, is_ssl))  	// allowed url
+                {
                     isexception = true;
                     exceptionreason = o.language_list.getTranslation(603);
                     message_no = 603;
                     // Exception url match.
                     exceptioncat = o.lm.l[o.fg[filtergroup]->exception_url_list]->lastcategory.toCharArray();
-                } else if ((rc = o.fg[filtergroup]->inExceptionRegExpURLList(urld)) > -1) {
+                }
+                else if ((rc = o.fg[filtergroup]->inExceptionRegExpURLList(urld)) > -1)                {
                     isexception = true;
                     // exception regular expression url match:
                     exceptionreason = o.language_list.getTranslation(609);
                     message_no = 609;
                     exceptionreason += o.fg[filtergroup]->exception_regexpurl_list_source[rc].toCharArray();
                     exceptioncat = o.lm.l[o.fg[filtergroup]->exception_regexpurl_list_ref[rc]]->category.toCharArray();
-                } else if (!(*o.fg[filtergroup]).enable_local_list) {
-                    if (embededRefererChecks(&header, &urld, &url, filtergroup)) { // referer exception
+                }
+                else if (!(*o.fg[filtergroup]).enable_local_list)                {
+                    if (embededRefererChecks(&header, &urld, &url,filtergroup))   // referer exception
+                    {
                         isexception = true;
                         exceptionreason = o.language_list.getTranslation(620);
                         message_no = 620;
                     }
                 }
+
+
             }
             // if bannedregexwithblanketblock and exception check nevertheless
-            if ((*o.fg[filtergroup]).enable_regex_grey && isexception && (!(isbypass || isbanneduser || isbannedip))) {
+            if ((*o.fg[filtergroup]).enable_regex_grey && isexception && (!(isbypass || isbanneduser || isbannedip )))            {
                 requestChecks(&header, &checkme, &urld, &url, &clientip, &clientuser, filtergroup, isbanneduser, isbannedip, room);
                 // Debug deny code //
                 // syslog(LOG_ERR, "code: %d", checkme.message_no); //
-                if (checkme.message_no == 503 || checkme.message_no == 508) {
+                if (checkme.message_no == 503 || checkme.message_no == 508 )                {
                     isexception = false;
                     message_no = checkme.message_no;
                 }
@@ -1194,16 +1451,20 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
             isconnect = reqtype[0] == 'C';
             ishead = reqtype[0] == 'H';
 
+
             // Query request and response scanners to see which is interested in scanning data for this request
             // TODO - Should probably block if willScanRequest returns error
             bool multipart = false;
             if (!isbannedip && !isbanneduser && !isconnect && !ishead
-                && (o.fg[filtergroup]->disable_content_scan != 1)
-                && !(isexception && !o.content_scan_exceptions)) {
-                for (std::deque<Plugin *>::iterator i = o.csplugins_begin; i != o.csplugins_end; ++i) {
-                    int csrc = ((CSPlugin *)(*i))->willScanRequest(header.getUrl(), clientuser.c_str(), filtergroup, clientip.c_str(), false, false, isexception, isbypass);
+                    && (o.fg[filtergroup]->disable_content_scan != 1)
+                    && !(isexception && !o.content_scan_exceptions))
+            {
+                for (std::deque<Plugin *>::iterator i = o.csplugins_begin; i != o.csplugins_end; ++i)
+                {
+                    int csrc = ((CSPlugin*)(*i))->willScanRequest(header.getUrl(), clientuser.c_str(), filtergroup,
+                               clientip.c_str(), false, false, isexception, isbypass);
                     if (csrc > 0)
-                        responsescanners.push_back((CSPlugin *)(*i));
+                        responsescanners.push_back((CSPlugin*)(*i));
                     else if (csrc < 0)
                         syslog(LOG_ERR, "willScanRequest returned error: %d", csrc);
                 }
@@ -1212,7 +1473,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
 #endif
 
                 // Only query scanners regarding outgoing data if we are actually sending data in the request
-                if (header.contentLength() > 0) {
+                if (header.contentLength() > 0)
+                {
                     // POST data log entry - fill in for single-part posts,
                     // and fill in overall "guess" for multi-part posts;
                     // latter will be overwritten with more detail about
@@ -1222,17 +1484,23 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     postparts.back().mimetype.assign(mtype);
                     postparts.back().size = header.contentLength();
 
-                    if (mtype == "application/x-www-form-urlencoded" || (multipart = (mtype == "multipart/form-data"))) {
+                    if (mtype == "application/x-www-form-urlencoded" || (multipart = (mtype == "multipart/form-data")))
+                    {
                         // Don't bother if it's a single part POST and is above max_content_ramcache_scan_size
-                        if (!multipart && header.contentLength() > o.max_content_ramcache_scan_size) {
+                        if (!multipart && header.contentLength() > o.max_content_ramcache_scan_size)
+                        {
 #ifdef DGDEBUG
                             std::cout << dbgPeerPort << " -Not running willScanRequest for POST data: single-part POST with content length above size limit" << std::endl;
 #endif
-                        } else {
-                            for (std::deque<Plugin *>::iterator i = o.csplugins_begin; i != o.csplugins_end; ++i) {
-                                int csrc = ((CSPlugin *)(*i))->willScanRequest(header.getUrl(), clientuser.c_str(), filtergroup, clientip.c_str(), true, !multipart, isexception, isbypass);
+                        }
+                        else
+                        {
+                            for (std::deque<Plugin *>::iterator i = o.csplugins_begin; i != o.csplugins_end; ++i)
+                            {
+                                int csrc = ((CSPlugin*)(*i))->willScanRequest(header.getUrl(), clientuser.c_str(), filtergroup,
+                                           clientip.c_str(), true, !multipart, isexception, isbypass);
                                 if (csrc > 0)
-                                    requestscanners.push_back((CSPlugin *)(*i));
+                                    requestscanners.push_back((CSPlugin*)(*i));
                                 else if (csrc < 0)
                                     syslog(LOG_ERR, "willScanRequest returned error: %d", csrc);
                             }
@@ -1247,48 +1515,45 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
             if (((isexception || iscookiebypass || isvirusbypass)
                     // don't filter exception and local web server
                     // Cookie bypass so don't need to add cookie so just CONNECT (unless should content scan)
-                    && !isbannedip // bad users pc
-                    && !isbanneduser // bad user
-                    && requestscanners.empty() && responsescanners.empty()) // doesn't need content scanning
-                // bad people still need to be able to access the banned page
-                || isourwebserver) {
-                proxysock.readyForOutput(o.proxy_timeout); // exception on timeout or error
-                if (isconnect)
-                    header.sslsiteRegExp(filtergroup);
-                header.out(&peerconn, &proxysock, __DGHEADER_SENDALL, true); // send proxy the request
+                    && !isbannedip	 // bad users pc
+                    && !isbanneduser	 // bad user
+                    && requestscanners.empty() && responsescanners.empty())  // doesn't need content scanning
+                    // bad people still need to be able to access the banned page
+                    || isourwebserver)
+            {
+                proxysock.readyForOutput(o.proxy_timeout);  // exception on timeout or error
+                header.out(&peerconn, &proxysock, __DGHEADER_SENDALL, true);  // send proxy the request
                 docheader.in(&proxysock, persistOutgoing);
                 persistProxy = docheader.isPersistent();
-                persistPeer = persistOutgoing && docheader.wasPersistent();
+                persistPeer  = persistOutgoing && docheader.wasPersistent();
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -persistPeer: " << persistPeer << std::endl;
 #endif
                 docheader.out(NULL, &peerconn, __DGHEADER_SENDALL);
                 // only open a two-way tunnel on CONNECT if the return code indicates success
-                if (!(docheader.returnCode() == 200)) {
+                if (!(docheader.returnCode() == 200))                {
                     isconnect = false;
                 }
 
-                if (isconnect) {
-                    persistProxy = false;
-                    persistOutgoing = false;
-                    persistPeer = false;
-                }
+                if (isconnect)                {                    persistProxy = false;                    persistOutgoing = false;                    persistPeer = false;                }
 
-                try {
-                    fdt.reset(); // make a tunnel object
+                try                {
+                    fdt.reset();  // make a tunnel object
                     // tunnel from client to proxy and back
                     // two-way if SSL
-                    fdt.tunnel(proxysock, peerconn, isconnect, docheader.contentLength(), true); // not expected to exception
+                    fdt.tunnel(proxysock, peerconn, isconnect, docheader.contentLength(), true);  // not expected to exception
                     docsize = fdt.throughput;
-                    if (!isourwebserver) { // don't log requests to the web server
+                    if (!isourwebserver)  	// don't log requests to the web server
+                    {
                         String rtype(header.requestType());
                         doLog(clientuser, clientip, logurl, header.port, exceptionreason, rtype, docsize, (exceptioncat.length() ? &exceptioncat : NULL), false, 0, isexception,
-                            false, &thestart, cachehit, ((!isconnect && persistPeer) ? docheader.returnCode() : 200),
-                            mimetype, wasinfected, wasscanned, 0, filtergroup, &header, message_no);
+                              false, &thestart, cachehit, ((!isconnect && persistPeer) ? docheader.returnCode() : 200),
+                              mimetype, wasinfected, wasscanned, 0, filtergroup, &header, message_no);
                     }
                     if (!persistProxy)
-                        proxysock.close(); // close connection to proxy
-                } catch (std::exception &e) {
+                        proxysock.close();  // close connection to proxy
+                }
+                catch (std::exception & e)                {
                 }
 
                 if (persistPeer)
@@ -1297,7 +1562,7 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 break;
             }
 
-            if ((o.max_ips > 0) && (!gotIPs(clientip))) {
+            if ((o.max_ips > 0) && (!gotIPs(clientip)))            {
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -no client IP slots left" << std::endl;
 #endif
@@ -1314,27 +1579,25 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
             }
 
             // URL regexp search and redirect
-            if (!is_ssl)
-                urlredirect = header.urlRedirectRegExp(filtergroup);
-            if (urlredirect) {
+            if (!is_ssl) urlredirect = header.urlRedirectRegExp(filtergroup);
+            if (urlredirect)            {
                 url = header.redirecturl();
 #ifdef DGDEBUG
-                std::cout << "urlRedirectRegExp told us to redirect client to \"" << url << std::endl;
+                std::cout<<"urlRedirectRegExp told us to redirect client to \"" << url << std::endl;
 #endif
                 proxysock.close();
                 String writestring("HTTP/1.0 302 Redirect\nLocation: ");
-                writestring += url;
+                writestring += url ;
                 writestring += "\n\n";
                 peerconn.writeString(writestring.toCharArray());
                 break;
             }
 
-            if (!is_ssl)
-                headeradded = header.isHeaderAdded(filtergroup);
+            if (!is_ssl) headeradded = header.isHeaderAdded(filtergroup);
 
             // URL regexp search and replace
             urlmodified = header.urlRegExp(filtergroup);
-            if (urlmodified) {
+            if (urlmodified)            {
                 url = header.getUrl();
                 urld = header.decode(url);
                 urldomain = url.getHostname();
@@ -1345,26 +1608,30 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 // from blocking the entire request.
                 // this could be achieved with exception phrases (which are, of course, always checked
                 // after the URL) too, but there are cases for both, and flexibility is good.
-                if (o.recheck_replaced_urls && !(isbanneduser || isbannedip)) {
+                if (o.recheck_replaced_urls && !(isbanneduser || isbannedip))                {
                     //bool is_ssl = header.requestType() == "CONNECT";
                     bool is_ip = isIPHostnameStrip(urld);
-                    if (o.fg[filtergroup]->inExceptionSiteList(urld, true, is_ip, is_ssl)) { // allowed site
-                        if (o.fg[0]->isOurWebserver(url)) {
+                    if (o.fg[filtergroup]->inExceptionSiteList(urld, true, is_ip, is_ssl))  	// allowed site
+                    {
+                        if (o.fg[0]->isOurWebserver(url))                        {
                             isourwebserver = true;
-                        } else {
+                        }                        else                        {
                             isexception = true;
                             exceptionreason = o.language_list.getTranslation(602);
                             message_no = 602;
                             // Exception site match.
                             exceptioncat = o.lm.l[o.fg[filtergroup]->exception_site_list]->lastcategory.toCharArray();
                         }
-                    } else if (o.fg[filtergroup]->inExceptionURLList(urld, true, is_ip, is_ssl)) { // allowed url
+                    }
+                    else if (o.fg[filtergroup]->inExceptionURLList(urld, true, is_ip, is_ssl))  	// allowed url
+                    {
                         isexception = true;
                         exceptionreason = o.language_list.getTranslation(603);
                         message_no = 603;
                         // Exception url match.
                         exceptioncat = o.lm.l[o.fg[filtergroup]->exception_url_list]->lastcategory.toCharArray();
-                    } else if ((rc = o.fg[filtergroup]->inExceptionRegExpURLList(urld)) > -1) {
+                    }
+                    else if ((rc = o.fg[filtergroup]->inExceptionRegExpURLList(urld)) > -1)                    {
                         isexception = true;
                         // exception regular expression url match:
                         exceptionreason = o.language_list.getTranslation(609);
@@ -1375,49 +1642,46 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     // don't filter exception and local web server
                     if ((isexception
                             // even after regex URL replacement, we still don't want banned IPs/users viewing exception sites
-                            && !isbannedip // bad users pc
-                            && !isbanneduser // bad user
+                            && !isbannedip	 // bad users pc
+                            && !isbanneduser	 // bad user
                             && requestscanners.empty() && responsescanners.empty())
-                        || isourwebserver) {
-                        proxysock.readyForOutput(o.proxy_timeout); // exception on timeout or error
-                        if (isconnect)
-                            header.sslsiteRegExp(filtergroup);
-                        header.out(&peerconn, &proxysock, __DGHEADER_SENDALL, true); // send proxy the request
+                            || isourwebserver)
+                    {
+                        proxysock.readyForOutput(o.proxy_timeout);  // exception on timeout or error
+                        header.out(&peerconn, &proxysock, __DGHEADER_SENDALL, true);  // send proxy the request
                         docheader.in(&proxysock, persistOutgoing);
                         persistProxy = docheader.isPersistent();
-                        persistPeer = persistOutgoing && docheader.wasPersistent();
+                        persistPeer  = persistOutgoing && docheader.wasPersistent();
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << " -persistPeer: " << persistPeer << std::endl;
 #endif
                         docheader.out(NULL, &peerconn, __DGHEADER_SENDALL);
 
                         // only open a two-way tunnel on CONNECT if the return code indicates success
-                        if (!(docheader.returnCode() == 200)) {
+                        if (!(docheader.returnCode() == 200))                        {
                             isconnect = false;
                         }
-                        if (isconnect) {
-                            persistProxy = false;
-                            persistOutgoing = false;
-                            persistPeer = false;
-                        }
-                        try {
-                            fdt.reset(); // make a tunnel object
+                        if (isconnect)                        {                            persistProxy = false;                            persistOutgoing = false;                            persistPeer = false;                        }
+                        try                        {
+                            fdt.reset();  // make a tunnel object
                             // tunnel from client to proxy and back
                             // two-way if SSL
-                            fdt.tunnel(proxysock, peerconn, isconnect, docheader.contentLength(), true); // not expected to exception
+                            fdt.tunnel(proxysock, peerconn, isconnect, docheader.contentLength(), true);  // not expected to exception
                             docsize = fdt.throughput;
-                            if (!isourwebserver) { // don't log requests to the web server
+                            if (!isourwebserver)  	// don't log requests to the web server
+                            {
                                 String rtype(header.requestType());
                                 doLog(clientuser, clientip, logurl, header.port, exceptionreason, rtype, docsize, (exceptioncat.length() ? &exceptioncat : NULL),
-                                    false, 0, isexception, false, &thestart, cachehit, ((!isconnect && persistPeer) ? docheader.returnCode() : 200),
-                                    mimetype, wasinfected, wasscanned, checkme.naughtiness, filtergroup, &header, message_no,
-                                    // content wasn't modified, but URL was
-                                    false, true, headermodified, headeradded);
+                                      false, 0, isexception, false, &thestart, cachehit, ((!isconnect && persistPeer) ? docheader.returnCode() : 200),
+                                      mimetype, wasinfected, wasscanned, checkme.naughtiness, filtergroup, &header, message_no,
+                                      // content wasn't modified, but URL was
+                                      false, true, headermodified, headeradded);
                             }
 
                             if (!persistProxy)
-                                proxysock.close(); // close connection to proxy
-                        } catch (std::exception &e) {
+                                proxysock.close();  // close connection to proxy
+                        }
+                        catch (std::exception & e)                        {
                         }
 
                         if (persistPeer)
@@ -1434,34 +1698,33 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
             // if o.content_scan_exceptions is on then exceptions have to
             // pass on until later for AV scanning too.
             // Bloody annoying feature that adds mess and complexity to the code
-            if (isexception) {
+            if (isexception)            {
                 checkme.isException = true;
                 checkme.whatIsNaughtyLog = exceptionreason;
                 checkme.whatIsNaughtyCategories = exceptioncat;
             }
 
-            if (isconnect && !isbypass && !isexception) {
-                if (!authed) {
+            if (isconnect && !isbypass && !isexception)            {
+                if (!authed)                {
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -CONNECT: user not authed - getting response to see if it's auth required" << std::endl;
 #endif
                     // send header to proxy
                     proxysock.readyForOutput(o.proxy_timeout);
-                    if (isconnect)
-                        header.sslsiteRegExp(filtergroup);
                     header.out(NULL, &proxysock, __DGHEADER_SENDALL, true);
 
                     // get header from proxy
                     proxysock.checkForInput(o.exchange_timeout);
                     docheader.in(&proxysock, persistOutgoing);
                     persistProxy = docheader.isPersistent();
-                    persistPeer = persistOutgoing && docheader.wasPersistent();
+                    persistPeer  = persistOutgoing && docheader.wasPersistent();
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -persistPeer: " << persistPeer << std::endl;
 #endif
                     wasrequested = true;
 
-                    if (docheader.returnCode() != 200) {
+                    if (docheader.returnCode() != 200)
+                    {
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << " -CONNECT: user not authed - doing standard filtering on auth required response" << std::endl;
 #endif
@@ -1472,7 +1735,7 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 std::cout << dbgPeerPort << "isconnect=" << isconnect << " ismitmcandidate=" << ismitmcandidate << " only_mitm_ssl_grey=" << o.fg[filtergroup]->only_mitm_ssl_grey << std::endl;
 #endif
 
-                if (isconnect && ((!ismitmcandidate) || o.fg[filtergroup]->only_mitm_ssl_grey)) {
+                if (isconnect && ((!ismitmcandidate) || o.fg[filtergroup]->only_mitm_ssl_grey))                {
                     persistProxy = false;
                     persistPeer = false;
                     persistOutgoing = false;
@@ -1492,272 +1755,40 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 }
             }
 
-#ifdef __SSLMITM
-            //https mitm but only on port 443
-            if (o.fg[filtergroup]->only_mitm_ssl_grey && !checkme.isSSLGrey)
-                ismitmcandidate = false;
-            if (!isexception && ismitmcandidate) {
-#ifdef DGDEBUG
-                std::cout << dbgPeerPort << " -Intercepting HTTPS connection" << std::endl;
-#endif
-
-                //Do the connect request
-                if (!checkme.isItNaughty && !wasrequested) {
-#ifdef DGDEBUG
-                    std::cout << dbgPeerPort << " -Forwarding connect request" << std::endl;
-#endif
-                    proxysock.readyForOutput(o.proxy_timeout); // exception on timeout or error
-                    if (isconnect)
-                        header.sslsiteRegExp(filtergroup);
-                    header.out(NULL, &proxysock, __DGHEADER_SENDALL, true); // send proxy the request
-                    //check the response headers so we can go ssl
-                    proxysock.checkForInput(120);
-                    docheader.in(&proxysock, persistOutgoing);
-                    persistProxy = docheader.isPersistent();
-                    persistPeer = persistOutgoing && docheader.wasPersistent();
-#ifdef DGDEBUG
-                    std::cout << dbgPeerPort << " -persistPeer: " << persistPeer << std::endl;
-#endif
-                }
-
-                //take care of connect fails / proxy auth requests
-                if (!checkme.isItNaughty && !(docheader.returnCode() == 200)) {
-#ifdef DGDEBUG
-                    std::cout << dbgPeerPort << " -Connect request failed / proxy auth required. Returning data to client" << std::endl;
-#endif
-                    //send data to the client and let it deal with it
-                    docheader.out(NULL, &peerconn, __DGHEADER_SENDALL, true);
-
-                    try {
-#ifdef DGDEBUG
-                        std::cout << dbgPeerPort << " -Forwarding body to client" << std::endl;
-#endif
-                        fdt.reset(); // make a tunnel object
-                        // tunnel from proxy to client
-                        fdt.tunnel(proxysock, peerconn, false); // not expected to exception
-                        docsize = fdt.throughput;
-                        String rtype(header.requestType());
-                        doLog(clientuser, clientip, logurl, header.port, exceptionreason, rtype, docsize, &checkme.whatIsNaughtyCategories, false, 0,
-                            isexception, false, &thestart,
-                            cachehit, header.returnCode(), mimetype, wasinfected,
-                            wasscanned, checkme.naughtiness, filtergroup, &header, message_no, false, urlmodified, headermodified, headeradded);
-
-                        if (!persistProxy)
-                            proxysock.close(); // close connection to proxy
-                    } catch (std::exception &e) {
-                    }
-
-                    if (persistPeer) {
-                        continue;
-                    }
-
-                    break;
-                }
-
-                //  CA intialisation now Moved into OptionContainer so now done once on start-up
-                //  instead off on every request
-
-                X509 *cert = NULL;
-                struct ca_serial caser;
-                EVP_PKEY *pkey = NULL;
-                bool certfromcache = false;
-                //generate the cert
-                if (!checkme.isItNaughty) {
-#ifdef DGDEBUG
-                    std::cout << dbgPeerPort << " -Getting ssl certificate for client connection" << std::endl;
-#endif
-
-                    pkey = o.ca->getServerPkey();
-
-                    //generate the certificate but dont write it to disk (avoid someone
-                    //requesting lots of places that dont exist causing the disk to fill
-                    //up / run out of inodes
-                    certfromcache = o.ca->getServerCertificate(urldomain.CN().c_str(), &cert,
-                        &caser);
-#ifdef DGDEBUG
-                    if (caser.asn == NULL) {
-                        std::cout << "caser.asn is NULL" << std::endl;
-                    }
-//				std::cout << "serials are: " << (char) *caser.asn << " " < caser.charhex  << std::endl;
-#endif
-
-                    //check that the generated cert is not null and fillin checkme if it is
-                    if (cert == NULL) {
-                        checkme.isItNaughty = true;
-                        //checkme.whatIsNaughty = "Failed to get ssl certificate";
-                        checkme.message_no = 151;
-                        checkme.whatIsNaughty = o.language_list.getTranslation(151);
-                        checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
-                        checkme.whatIsNaughtyCategories = o.language_list.getTranslation(70);
-                    } else if (pkey == NULL) {
-                        checkme.isItNaughty = true;
-                        //checkme.whatIsNaughty = "Failed to load ssl private key";
-                        checkme.message_no = 153;
-                        checkme.whatIsNaughty = o.language_list.getTranslation(153);
-                        checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
-                        checkme.whatIsNaughtyCategories = o.language_list.getTranslation(70);
-                    }
-                }
-
-                //startsslserver on the connection to the client
-                if (!checkme.isItNaughty) {
-#ifdef DGDEBUG
-                    std::cout << dbgPeerPort << " -Going SSL on the peer connection" << std::endl;
-#endif
-                    //send a 200 to the client no matter what because they managed to get a connection to us
-                    //and we can use it for a blockpage if nothing else
-                    std::string msg = "HTTP/1.0 200 Connection established\r\n\r\n";
-                    peerconn.writeString(msg.c_str());
-
-                    if (peerconn.startSslServer(cert, pkey, o.set_cipher_list) < 0) {
-                        //make sure the ssl stuff is shutdown properly so we display the old ssl blockpage
-                        //peerconn.stopSsl();
-
-                        checkme.isItNaughty = true;
-                        //checkme.whatIsNaughty = "Failed to negotiate ssl connection to client";
-                        checkme.message_no = 154;
-                        checkme.whatIsNaughty = o.language_list.getTranslation(154);
-                        checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
-                        checkme.whatIsNaughtyCategories = o.language_list.getTranslation(70);
-                    }
-                }
-
-                //startsslclient connected to the proxy and check the certificate of the server
-                bool badcert = false;
-                if (!checkme.isItNaughty) {
-#ifdef DGDEBUG
-                    std::cout << dbgPeerPort << " -Going SSL on connection to proxy" << std::endl;
-#endif
-                    std::string certpath = std::string(o.ssl_certificate_path);
-                    if (proxysock.startSslClient(certpath,urldomain)) {
-                        //make sure the ssl stuff is shutdown properly so we display the old ssl blockpage
-                    //    proxysock.stopSsl();
-
-                        checkme.isItNaughty = true;
-                        //checkme.whatIsNaughty = "Failed to negotiate ssl connection to server";
-                        checkme.message_no = 160;
-                        checkme.whatIsNaughty = o.language_list.getTranslation(160);
-                        checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
-                        checkme.whatIsNaughtyCategories = o.language_list.getTranslation(70);
-                    }
-		}
-
-                if (!checkme.isItNaughty) {
-
-#ifdef DGDEBUG
-                    std::cout << dbgPeerPort << " -Checking certificate" << std::endl;
-#endif
-                    //will fill in checkme of its own accord
-                    if (o.fg[filtergroup]->mitm_check_cert && !o.fg[filtergroup]->inNoCheckCertSiteList(urldomain)) {
-                        checkCertificate(urldomain, &proxysock, &checkme);
-                        badcert = checkme.isItNaughty;
-                    }
-                }
-
-                //handleConnection inside the ssl tunnel
-                if (!checkme.isItNaughty) {
-                    bool writecert = true;
-                    if (!certfromcache) {
-                        writecert = o.ca->writeCertificate(urldomain.CN().c_str(), cert,
-                            &caser);
-                    }
-
-                    //if we cant write the certificate its not the end of the world but it is slow
-                    if (!writecert) {
-#ifdef DGDEBUG
-                        std::cout << dbgPeerPort << " -Couldn't save certificate to on disk cache" << std::endl;
-#endif
-                        syslog(LOG_ERR, "Couldn't save certificate to on disk cache");
-                    }
-#ifdef DGDEBUG
-                    std::cout << dbgPeerPort << " -Handling connections inside ssl tunnel" << std::endl;
-#endif
-
-                    if (authed) {
-                        persistent_authed = true;
-                    }
-
-                    handleConnection(peerconn, ip, true, proxysock);
-#ifdef DGDEBUG
-                    std::cout << dbgPeerPort << " -Handling connections inside ssl tunnel: done" << std::endl;
-#endif
-                }
-                o.ca->free_ca_serial(&caser);
-
-                //stopssl on the proxy connection
-                //if it was marked as naughty then show a deny page and close the connection
-                if (checkme.isItNaughty) {
-#ifdef DGDEBUG
-                    std::cout << dbgPeerPort << " -SSL Interception failed " << checkme.whatIsNaughty << std::endl;
-#endif
-
-                    String rtype(header.requestType());
-                    doLog(clientuser, clientip, logurl, header.port, checkme.whatIsNaughtyLog, rtype, docsize, &checkme.whatIsNaughtyCategories, true, checkme.blocktype,
-                        isexception, false, &thestart,
-                        cachehit, (wasrequested ? docheader.returnCode() : 200), mimetype, wasinfected,
-                        wasscanned, checkme.naughtiness, filtergroup, &header, message_no, false, urlmodified, headermodified, headeradded);
-
-                    denyAccess(&peerconn, &proxysock, &header, &docheader, &logurl, &checkme, &clientuser,
-                        &clientip, filtergroup, ispostblock, headersent, wasinfected, scanerror, badcert);
-                }
-#ifdef DGDEBUG
-                std::cout << dbgPeerPort << " -Shutting down ssl to proxy" << std::endl;
-#endif
-                proxysock.stopSsl();
-
-#ifdef DGDEBUG
-                std::cout << dbgPeerPort << " -Shutting down ssl to client" << std::endl;
-#endif
-
-                peerconn.stopSsl();
-
-                //tidy up key and cert
-                X509_free(cert);
-                EVP_PKEY_free(pkey);
-
-                persistProxy = false;
-                proxysock.close();
-                break;
-            }
-//if not mitm then just do the tunneling
-//else
-//{
-#endif //__SSLMITM
             // Banned rewrite SSL denied page
-            if ((is_ssl == true) && (checkme.isItNaughty == true) && (o.fg[filtergroup]->ssl_denied_rewrite == true)) {
+            if ((is_ssl == true) && (checkme.isItNaughty == true) && (o.fg[filtergroup]->ssl_denied_rewrite == true))            {
                 header.DenySSL(filtergroup);
                 String rtype(header.requestType());
-                doLog(clientuser, clientip, logurl, header.port, checkme.whatIsNaughtyLog, rtype, docsize, &checkme.whatIsNaughtyCategories, true, checkme.blocktype, isexception, false, &thestart, cachehit, (wasrequested ? docheader.returnCode() : 200), mimetype, wasinfected, wasscanned, checkme.naughtiness, filtergroup, &header, message_no, false, urlmodified, headermodified, headeradded);
+                doLog(clientuser, clientip, logurl, header.port, checkme.whatIsNaughtyLog, rtype, docsize, &checkme.whatIsNaughtyCategories, true, checkme.blocktype, isexception, false, &thestart,cachehit, (wasrequested ? docheader.returnCode() : 200), mimetype, wasinfected, wasscanned, checkme.naughtiness, filtergroup, &header, message_no, false, urlmodified, headermodified, headeradded);
                 checkme.isItNaughty = false;
             }
 
-            if (!checkme.isItNaughty && isconnect) {
+            if (!checkme.isItNaughty && isconnect)            {
                 // can't filter content of CONNECT
-                if (!wasrequested) {
-                    proxysock.readyForOutput(o.proxy_timeout); // exception on timeout or error
-                    if (isconnect)
-                        header.sslsiteRegExp(filtergroup);
-                    header.out(NULL, &proxysock, __DGHEADER_SENDALL, true); // send proxy the request
-                } else {
+                if (!wasrequested)                {
+                    proxysock.readyForOutput(o.proxy_timeout);  // exception on timeout or error
+                    header.out(NULL, &proxysock, __DGHEADER_SENDALL, true);  // send proxy the request
+                }                else                {
                     docheader.out(NULL, &peerconn, __DGHEADER_SENDALL);
                 }
-                try {
+                try                {
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -Opening tunnel for CONNECT" << std::endl;
 #endif
-                    fdt.reset(); // make a tunnel object
+                    fdt.reset();  // make a tunnel object
                     // tunnel from client to proxy and back - *true* two-way tunnel
-                    fdt.tunnel(proxysock, peerconn, true); // not expected to exception
+                    fdt.tunnel(proxysock, peerconn, true);  // not expected to exception
                     docsize = fdt.throughput;
                     String rtype(header.requestType());
                     doLog(clientuser, clientip, logurl, header.port, exceptionreason, rtype, docsize, &checkme.whatIsNaughtyCategories, false,
-                        0, isexception, false, &thestart,
-                        cachehit, (wasrequested ? docheader.returnCode() : 200), mimetype, wasinfected,
-                        wasscanned, checkme.naughtiness, filtergroup, &header, message_no, false, urlmodified, headermodified, headeradded);
+                          0, isexception, false, &thestart,
+                          cachehit, (wasrequested ? docheader.returnCode() : 200), mimetype, wasinfected,
+                          wasscanned, checkme.naughtiness, filtergroup, &header, message_no, false, urlmodified, headermodified, headeradded);
 
                     if (!persistProxy)
-                        proxysock.close(); // close connection to proxy
-                } catch (std::exception &e) {
+                        proxysock.close();  // close connection to proxy
+                }
+                catch (std::exception & e)                {
                 }
 
                 if (persistPeer)
@@ -1771,29 +1802,31 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
             // from sites when they're just going to get banned: not too big an issue in most cases, but
             // not good if blocking sites it would be illegal to retrieve, and allows web bugs/tracking
             // links not to be requested.
-            if (authed && !isbypass && !isexception && !checkme.isItNaughty) {
+            if (authed && !isbypass && !isexception && !checkme.isItNaughty)            {
                 requestChecks(&header, &checkme, &urld, &url, &clientip, &clientuser, filtergroup,
-                    isbanneduser, isbannedip, room);
+                              isbanneduser, isbannedip, room);
                 message_no = checkme.message_no;
             }
 
             // TODO - This post code is too big
             // Filtering of POST data
             off_t cl = header.contentLength();
-            if (authed && !checkme.isItNaughty && cl > 0) {
+            if (authed && !checkme.isItNaughty && cl > 0)
+            {
                 // Check for POST upload size blocking, unless request is an exception
                 // MIME type test is just an approximation, but probably good enough
 
                 long max_upload_size;
-                max_upload_size = (*o.fg[filtergroup]).max_upload_size;
+                max_upload_size=(*o.fg[filtergroup]).max_upload_size;
 
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " max upload size general: " << max_upload_size << " filtergroup " << filtergroup << ": " << (*o.fg[filtergroup]).max_upload_size << std::endl;
 
 #endif
                 if (!isbypass && !isexception
-                    && ((max_upload_size >= 0) && (cl > max_upload_size))
-                    && multipart) {
+                        && ((max_upload_size >= 0) && (cl > max_upload_size))
+                        && multipart)
+                {
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -Detected POST upload violation by Content-Length header - discarding rest of POST data..." << max_upload_size << std::endl;
 #endif
@@ -1804,9 +1837,12 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     checkme.whatIsNaughtyCategories = "Web upload";
                     checkme.isItNaughty = true;
                     ispostblock = true;
-                } else if (!requestscanners.empty()) {
+                }
+                else if (!requestscanners.empty())
+                {
                     // POST scanning by content scanning plugins
-                    if (multipart) {
+                    if (multipart)
+                    {
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << " -Filtering multi-part POST data" << std::endl;
 #endif
@@ -1843,11 +1879,11 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                         // Iterate over all parts.  Stop filtering after the first blocked part,
                         // for performance, but keep processing so that we can store all parts
                         // if necessary.
-                        while (bytes_remaining > 0 && !last /*&& !checkme.isItNaughty*/) {
+                        while (bytes_remaining > 0 && !last /*&& !checkme.isItNaughty*/)
+                        {
                             // Grab the next chunk of data
                             int bytes_this_time = bytes_remaining > (2048 - rolling_buffer.length())
-                                ? (2048 - rolling_buffer.length())
-                                : bytes_remaining;
+                                                  ? (2048 - rolling_buffer.length()) : bytes_remaining;
                             int rc = peerconn.readFromSocketn(buffer, bytes_this_time, 0, 10);
                             if (rc < bytes_this_time)
                                 throw postfilter_exception("Could not retrieve POST data from browser");
@@ -1857,17 +1893,21 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                             bytes_remaining -= bytes_this_time;
 
                             bool foundb = false;
-                            do {
+                            do
+                            {
                                 // Process data from left of buffer
                                 std::string::size_type loc = rolling_buffer.find(boundary);
-                                if ((loc == std::string::npos) || (rolling_buffer.length() - (loc + (boundary.length() + 2)) < 0)) {
+                                if ((loc == std::string::npos) || (rolling_buffer.length() - (loc + (boundary.length() + 2)) < 0))
+                                {
                                     // Didn't contain the boundary, or wasn't long enough
                                     // to contain boundary plus trailer - append up to
                                     // the first half of the rolling buffer to the
                                     // current part, then discard it
                                     loc = 1024 < rolling_buffer.length() ? 1024 : rolling_buffer.length();
                                     foundb = false;
-                                } else {
+                                }
+                                else
+                                {
                                     // Contained the boundary - append data up to the
                                     // boundary, discard that data plus boundary
                                     foundb = true;
@@ -1881,29 +1921,35 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
 
                                 // Store data from left-hand half of buffer
                                 // Don't bother storing the preamble
-                                if (!first) {
-                                    if (part.get() != NULL && part->append(rolling_buffer.substr(0, loc).c_str(), loc)) {
-                                        if (foundb) {
+                                if (!first)
+                                {
+                                    if (part.get() != NULL && part->append(rolling_buffer.substr(0, loc).c_str(), loc))
+                                    {
+                                        if (foundb)
+                                        {
                                             // Determine where the headers end and the data begins
                                             part->finalise();
                                             const char *data = part->getData();
                                             size_t offset = 0;
                                             bool foundend = false;
-                                            do {
-                                                void *headend = memchr((void *)(data + offset), '\r', part->getLength() - offset);
+                                            do
+                                            {
+                                                void *headend = memchr((void*)(data + offset), '\r', part->getLength() - offset);
                                                 if (headend == NULL)
                                                     // not found
                                                     break;
-                                                offset = (size_t)headend - (size_t)(data);
+                                                offset = (size_t) headend - (size_t)(data);
                                                 if ((part->getLength() - offset) >= 4
-                                                    && strncmp(data + offset, "\r\n\r\n", 4) == 0) {
+                                                        && strncmp(data + offset, "\r\n\r\n", 4) == 0)
+                                                {
                                                     // found
                                                     foundend = true;
                                                     break;
                                                 }
                                                 // not found, but keep looking
                                                 ++offset;
-                                            } while (offset < (ssize_t)(part->getLength() - 4));
+                                            }
+                                            while (offset < (ssize_t)(part->getLength() - 4));
 
                                             if (!foundend)
                                                 throw postfilter_exception("End of POST data part headers not found");
@@ -1914,26 +1960,31 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                                             String mimetype;
                                             String disposition;
                                             size_t hdr_offset = 0;
-                                            do {
+                                            do
+                                            {
                                                 // Look for the end of the next header line in the section of the part
                                                 // that we know consists of headers (plus the last '\r')
-                                                void *headend = memchr((void *)(data + hdr_offset), '\r', (offset - hdr_offset) + 1);
+                                                void *headend = memchr((void*)(data + hdr_offset), '\r', (offset - hdr_offset) + 1);
                                                 if (headend == NULL)
                                                     // not found
                                                     break;
-                                                size_t new_hdr_offset = (size_t)headend - (size_t)(data);
+                                                size_t new_hdr_offset = (size_t) headend - (size_t) (data);
                                                 if ((new_hdr_offset - hdr_offset > 14)
-                                                    && strncasecmp(data + hdr_offset + 9, "ype: ", 5) == 0) {
+                                                        && strncasecmp(data + hdr_offset + 9, "ype: ", 5) == 0)
+                                                {
                                                     // found Content-Type
                                                     mimetype.assign(data + (hdr_offset + 14), new_hdr_offset - (hdr_offset + 14));
-                                                } else if ((new_hdr_offset - hdr_offset > 21)
-                                                    && strncasecmp(data + hdr_offset + 9, "isposition: ", 12) == 0) {
+                                                }
+                                                else if ((new_hdr_offset - hdr_offset > 21)
+                                                         && strncasecmp(data + hdr_offset + 9, "isposition: ", 12) == 0)
+                                                {
                                                     // found Content-Disposition
                                                     disposition.assign(data + (hdr_offset + 21), new_hdr_offset - (hdr_offset + 21));
                                                 }
                                                 // Restart from end of current header (also skip '\n')
                                                 hdr_offset = new_hdr_offset + 2;
-                                            } while (hdr_offset < offset);
+                                            }
+                                            while (hdr_offset < offset);
 #ifdef DGDEBUG
                                             std::cout << dbgPeerPort << " -POST part MIME type: " << mimetype << std::endl;
                                             std::cout << dbgPeerPort << " -POST part disposition: " << disposition << std::endl;
@@ -1944,10 +1995,12 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                                             postparts.push_back(postinfo());
                                             postparts.back().mimetype.assign(mimetype);
                                             std::string::size_type start = disposition.find("filename=");
-                                            if (start != std::string::npos) {
+                                            if (start != std::string::npos)
+                                            {
                                                 start += 9;
                                                 char endchar = ';';
-                                                if (disposition[start] == '"') {
+                                                if (disposition[start] == '"')
+                                                {
                                                     endchar = '"';
                                                     ++start;
                                                 }
@@ -1966,7 +2019,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                                             // If, when we get to the end of the filtering, the request
                                             // is not blocked/marked for storage, all parts will then
                                             // be deleted.  We need all parts to give decent context.
-                                            if (!o.blocked_content_store.empty()) {
+                                            if (!o.blocked_content_store.empty())
+                                            {
                                                 postparts.back().storedname = part->store(o.blocked_content_store.c_str());
 #ifdef DGDEBUG
                                                 std::cout << dbgPeerPort << " -Pre-emptively stored POST data part: " << postparts.back().storedname << std::endl;
@@ -1974,39 +2028,45 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                                             }
 
                                             // Run part through interested request scanning plugins
-                                            if (!checkme.isItNaughty) {
-                                                for (std::deque<CSPlugin *>::iterator i = requestscanners.begin(); i != requestscanners.end(); ++i) {
+                                            if (!checkme.isItNaughty)
+                                            {
+                                                for (std::deque<CSPlugin *>::iterator i = requestscanners.begin(); i != requestscanners.end(); ++i)
+                                                {
                                                     int csrc = (*i)->willScanData(header.getUrl(), clientuser.c_str(), filtergroup, clientip.c_str(),
-                                                        true, false, isexception, isbypass, disposition, mimetype, part->getLength() - offset);
+                                                                                  true, false, isexception, isbypass, disposition, mimetype, part->getLength() - offset);
 #ifdef DGDEBUG
                                                     std::cerr << dbgPeerPort << " -willScanData returned: " << csrc << std::endl;
 #endif
-                                                    if (csrc > 0) {
+                                                    if (csrc > 0)
+                                                    {
                                                         csrc = (*i)->scanMemory(&header, NULL, clientuser.c_str(), filtergroup, clientip.c_str(),
-                                                            data + offset, part->getLength() - offset, &checkme,
-                                                            &disposition, &mimetype);
-                                                        if (csrc != DGCS_CLEAN && csrc != DGCS_WARNING) {
+                                                                                data + offset, part->getLength() - offset, &checkme,
+                                                                                &disposition, &mimetype);
+                                                        if (csrc != DGCS_CLEAN && csrc != DGCS_WARNING)
+                                                        {
                                                             checkme.blocktype = 1;
                                                             postparts.back().blocked = true;
                                                             // Don't delete part (yet) if in stealth mode - need to send the data upstream
                                                             if (o.fg[filtergroup]->reporting_level != -1)
                                                                 part.reset();
                                                         }
-                                                        if (csrc == DGCS_BLOCKED) {
+                                                        if (csrc == DGCS_BLOCKED)                                                        {
                                                             // Send part upstream anyway if in stealth mode
                                                             if (o.fg[filtergroup]->reporting_level != -1)
                                                                 break;
-                                                        } else if (csrc == DGCS_INFECTED) {
+                                                        }
+                                                        else if (csrc == DGCS_INFECTED)                                                        {
                                                             wasinfected = true;
                                                             // Send part upstream anyway if in stealth mode
                                                             if (o.fg[filtergroup]->reporting_level != -1)
                                                                 break;
                                                         }
                                                         //if its not clean / we errored then treat it as infected
-                                                        else if (csrc != DGCS_CLEAN && csrc != DGCS_WARNING) {
-                                                            if (csrc < 0) {
+                                                        else if (csrc != DGCS_CLEAN && csrc != DGCS_WARNING)                                                        {
+                                                            if (csrc < 0)                                                            {
                                                                 syslog(LOG_ERR, "Return code from content scanner: %d", csrc);
-                                                            } else {
+                                                            }
+                                                            else                                                            {
                                                                 syslog(LOG_ERR, "scanFile/Memory returned error: %d", csrc);
                                                             }
                                                             //TODO: have proper error checking/reporting here?
@@ -2022,7 +2082,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                                                             scanerror = true;
                                                             break;
                                                         }
-                                                    } else if (csrc < 0)
+                                                    }
+                                                    else if (csrc < 0)
                                                         // TODO - Should probably block here
                                                         syslog(LOG_ERR, "willScanData returned error: %d", csrc);
                                                 }
@@ -2031,11 +2092,14 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                                             if (!checkme.isItNaughty || o.fg[filtergroup]->reporting_level == -1)
                                                 proxysock.writeToSockete(data, part->getLength(), 0, 20);
                                         }
-                                    } else {
+                                    }
+                                    else
+                                    {
                                         // Data could not be appended to the buffered POST part
                                         // - length must have exceeded maxcontentfilecachescansize,
                                         // so send the part directly upstream instead
-                                        if (part.get() != NULL) {
+                                        if (part.get() != NULL)
+                                        {
 #ifdef DGDEBUG
                                             std::cout << dbgPeerPort << " -POST data part too large, sending upstream" << std::endl;
 #endif
@@ -2047,8 +2111,10 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                                         // Send current chunk upstream directly
                                         proxysock.writeToSockete(rolling_buffer.substr(0, loc).c_str(), loc, 0, 20);
                                     }
-                                    if (foundb) {
-                                        if (!checkme.isItNaughty || o.fg[filtergroup]->reporting_level == -1) {
+                                    if (foundb)
+                                    {
+                                        if (!checkme.isItNaughty || o.fg[filtergroup]->reporting_level == -1)
+                                        {
                                             // Regardless of whether we were buffering or streaming, send the
                                             // boundary and trailers upstream if this was the last chunk of a part
                                             proxysock.writeToSockete(boundary.c_str(), boundary.length(), 0, 10);
@@ -2063,18 +2129,19 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
 
                                 // If we found the boundary, include boundary size
                                 // in the length of data we will discard
-                                if (foundb) {
+                                if (foundb)
+                                {
                                     loc += boundary.length() + 2;
-                                    if (first) {
-// We just past the preamble/first boundary
-// Send request headers and first boundary upstream
+                                    if (first)
+                                    {
+                                        // We just past the preamble/first boundary
+                                        // Send request headers and first boundary upstream
 #ifdef DGDEBUG
                                         std::cout << dbgPeerPort << " -Preamble/first boundary passed; sending headers & first boundary upstream" << std::endl;
 #endif
-                                        if (!wasrequested && (!checkme.isItNaughty || o.fg[filtergroup]->reporting_level == -1)) {
+                                        if (!wasrequested && (!checkme.isItNaughty || o.fg[filtergroup]->reporting_level == -1))
+                                        {
                                             proxysock.readyForOutput(o.proxy_timeout);
-                                            if (isconnect)
-                                                header.sslsiteRegExp(filtergroup);
                                             // sent *without* POST data, so cannot retrieve headers yet
                                             header.out(NULL, &proxysock, __DGHEADER_SENDALL, true);
                                             wasrequested = true;
@@ -2092,16 +2159,19 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                                     }
                                 }
                                 rolling_buffer.erase(0, loc);
-                            } while (foundb /*&& !checkme.isItNaughty*/);
+                            }
+                            while (foundb /*&& !checkme.isItNaughty*/);
                         } // while bytes_remaining > 0 && !last /* && not blocked */
 
                         // If the request is not blocked or storage has not been requested,
                         // delete all the (possibly) pre-emptively stored data parts
-                        if (!o.blocked_content_store.empty() && (!checkme.isItNaughty || !checkme.store)) {
+                        if (!o.blocked_content_store.empty() && (!checkme.isItNaughty || !checkme.store))
+                        {
 #ifdef DGDEBUG
                             std::cout << dbgPeerPort << " -Request was not blocked/marked for storage. Deleting data parts:" << std::endl;
 #endif
-                            for (std::list<postinfo>::iterator i = postparts.begin(); i != postparts.end(); ++i) {
+                            for (std::list<postinfo>::iterator i = postparts.begin(); i != postparts.end(); ++i)
+                            {
                                 if (i->storedname.empty())
                                     continue;
 #ifdef DGDEBUG
@@ -2115,57 +2185,66 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
 #endif
                         }
 
-                        if (!checkme.isItNaughty) {
+                        if (!checkme.isItNaughty)
+                        {
                             // Were we still within a part when the data came to an end?
                             // Did we not find a correctly-formatted last part boundary?
                             // Was there data (other than a CRLF) remaining after the final boundary?
-                            if (rolling_buffer.length() > 2 || !last || bytes_remaining > 2) {
+                            if (rolling_buffer.length() > 2 || !last || bytes_remaining > 2)
+                            {
                                 std::ostringstream ss;
                                 ss << "Last part of multi-part POST was not correctly terminated.  Part length: ";
                                 ss << part->getLength() << ", bytes remaining: " << bytes_remaining << ", last part found: " << last;
                                 throw postfilter_exception(ss.str().c_str());
                             }
-// get header from proxy
-// wasrequested will have been set to true (we have had to send out
-// the request headers & POST data by the time we get here), so none
-// of the code below here will do this for us.
+                            // get header from proxy
+                            // wasrequested will have been set to true (we have had to send out
+                            // the request headers & POST data by the time we get here), so none
+                            // of the code below here will do this for us.
 #ifdef DGDEBUG
                             std::cout << dbgPeerPort << " -All parts sent upstream; retrieving response headers" << std::endl;
 #endif
                             proxysock.checkForInput(120);
                             docheader.in(&proxysock, persistOutgoing);
                             persistProxy = docheader.isPersistent();
-                            persistPeer = persistOutgoing && docheader.wasPersistent();
+                            persistPeer  = persistOutgoing && docheader.wasPersistent();
 
 #ifdef DGDEBUG
                             std::cout << dbgPeerPort << " -persistPeer: " << persistPeer << std::endl;
 #endif
 
-                        } else {
-// Was blocked - discard rest of POST data before we show the block page
+                        }
+                        else
+                        {
+                            // Was blocked - discard rest of POST data before we show the block page
 #ifdef DGDEBUG
                             std::cout << dbgPeerPort << " -POST data part blocked; discarding remaining POST data" << std::endl;
 #endif
                             // Send rest of data upstream anyway if in stealth mode
-                            if (o.fg[filtergroup]->reporting_level == -1) {
+                            if (o.fg[filtergroup]->reporting_level == -1)
+                            {
                                 proxysock.writeToSockete(rolling_buffer.c_str(), rolling_buffer.length(), 0, 10);
                                 fdt.reset();
                                 fdt.tunnel(peerconn, proxysock, false, bytes_remaining, false);
                                 // Also retrieve response headers, if wasrequested was set to true,
                                 // because nothing else will do so later on
-                                if (wasrequested) {
+                                if (wasrequested)
+                                {
                                     docheader.in(&proxysock, persistOutgoing);
                                     persistProxy = docheader.isPersistent();
-                                    persistPeer = persistOutgoing && docheader.wasPersistent();
+                                    persistPeer  = persistOutgoing && docheader.wasPersistent();
 #ifdef DGDEBUG
                                     std::cout << dbgPeerPort << " -persistPeer: " << persistPeer << std::endl;
 #endif
+
                                 }
-                            } else
+                            }
+                            else
                                 header.discard(&peerconn, bytes_remaining);
                         }
 
-                    } else // if (mtype == "application/x-www-form-urlencoded")
+                    }
+                    else // if (mtype == "application/x-www-form-urlencoded")
                     {
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << " -Filtering single-part POST data" << std::endl;
@@ -2196,15 +2275,21 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                         // spaces at beginning & end.
                         String result(" ");
                         bool inname = true;
-                        for (off_t i = 1; i < cl; ++i) {
-                            if (inname) {
+                        for (off_t i = 1; i < cl; ++i)
+                        {
+                            if (inname)
+                            {
                                 if (buffer[i] == '=')
                                     inname = false;
-                            } else {
-                                if (buffer[i] == '&') {
+                            }
+                            else
+                            {
+                                if (buffer[i] == '&')
+                                {
                                     inname = true;
                                     result.append(" ");
-                                } else
+                                }
+                                else
                                     result.append(1, buffer[i]);
                             }
                         }
@@ -2216,24 +2301,28 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                         // decode %xx
                         result = HTTPHeader::decode(result, true);
 
-// Run the result through request scanners which are happy to deal with reconstituted data
+                        // Run the result through request scanners which are happy to deal with reconstituted data
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << " -Form data: " << result.c_str() << std::endl;
 #endif
-                        for (std::deque<CSPlugin *>::iterator i = requestscanners.begin(); i != requestscanners.end(); ++i) {
+                        for (std::deque<CSPlugin *>::iterator i = requestscanners.begin(); i != requestscanners.end(); ++i)
+                        {
                             int csrc = (*i)->willScanData(header.getUrl(), clientuser.c_str(), filtergroup, clientip.c_str(),
-                                true, true, isexception, isbypass, "", "text/plain", result.length());
+                                                          true, true, isexception, isbypass, "", "text/plain", result.length());
 #ifdef DGDEBUG
                             std::cerr << dbgPeerPort << " -willScanData returned: " << csrc << std::endl;
 #endif
-                            if (csrc > 0) {
+                            if (csrc > 0)
+                            {
                                 String mimetype("text/plain");
                                 csrc = (*i)->scanMemory(&header, NULL, clientuser.c_str(), filtergroup, clientip.c_str(),
-                                    result.c_str(), result.length(), &checkme, NULL, &mimetype);
-                                if (csrc != DGCS_CLEAN && csrc != DGCS_WARNING) {
+                                                        result.c_str(), result.length(), &checkme, NULL, &mimetype);
+                                if (csrc != DGCS_CLEAN && csrc != DGCS_WARNING)
+                                {
                                     checkme.blocktype = 1;
                                     postparts.back().blocked = true;
-                                    if (checkme.store && !o.blocked_content_store.empty()) {
+                                    if (checkme.store && !o.blocked_content_store.empty())
+                                    {
                                         // Write original encoded buffer to disk
                                         std::ostringstream timedprefix;
                                         timedprefix << o.blocked_content_store << '-' << time(NULL) << '-' << std::flush;
@@ -2246,7 +2335,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                                         std::cout << dbgPeerPort << " -Single-part POST: storedname template: " << storedname << std::endl;
 #endif
                                         int storefd;
-                                        if ((storefd = mkstemp(storedname)) < 0) {
+                                        if ((storefd = mkstemp(storedname)) < 0)
+                                        {
                                             std::ostringstream ss;
                                             ss << "Could not create file for single-part POST data: " << strerror(errno);
                                             throw std::runtime_error(ss.str().c_str());
@@ -2257,35 +2347,44 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                                         postparts.back().storedname = storedname;
                                         ssize_t bytes_written = 0;
                                         ssize_t rc = 0;
-                                        do {
+                                        do
+                                        {
                                             rc = write(storefd, buffer + bytes_written, cl - bytes_written);
                                             if (rc > 0)
                                                 bytes_written += rc;
-                                        } while (bytes_written < cl && (rc > 0 || errno == EINTR));
-                                        if (rc < 0 && errno != EINTR) {
+                                        }
+                                        while (bytes_written < cl && (rc > 0 || errno == EINTR));
+                                        if (rc < 0 && errno != EINTR)
+                                        {
                                             std::ostringstream ss;
                                             ss << "Could not write single-part POST data to file: " << strerror(errno);
-                                            do {
+                                            do
+                                            {
                                                 rc = close(storefd);
-                                            } while (rc < 0 && errno == EINTR);
+                                            }
+                                            while (rc < 0 && errno == EINTR);
                                             throw std::runtime_error(ss.str().c_str());
                                         }
-                                        do {
+                                        do
+                                        {
                                             rc = close(storefd);
-                                        } while (rc < 0 && errno == EINTR);
+                                        }
+                                        while (rc < 0 && errno == EINTR);
                                     }
                                 }
-                                if (csrc == DGCS_BLOCKED) {
+                                if (csrc == DGCS_BLOCKED)                                {
                                     break;
-                                } else if (csrc == DGCS_INFECTED) {
+                                }
+                                else if (csrc == DGCS_INFECTED)                                {
                                     wasinfected = true;
                                     break;
                                 }
                                 //if its not clean / we errored then treat it as infected
-                                else if (csrc != DGCS_CLEAN && csrc != DGCS_WARNING) {
-                                    if (csrc < 0) {
+                                else if (csrc != DGCS_CLEAN && csrc != DGCS_WARNING)                                {
+                                    if (csrc < 0)                                    {
                                         syslog(LOG_ERR, "Unknown return code from content scanner: %d", csrc);
-                                    } else {
+                                    }
+                                    else                                    {
                                         syslog(LOG_ERR, "scanFile/Memory returned error: %d", csrc);
                                     }
                                     //TODO: have proper error checking/reporting here?
@@ -2302,7 +2401,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                                     scanerror = true;
                                     break;
                                 }
-                            } else if (csrc < 0)
+                            }
+                            else if (csrc < 0)
                                 // TODO - Should probably block here
                                 syslog(LOG_ERR, "willScanData returned error: %d", csrc);
                         }
@@ -2318,28 +2418,26 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 std::cout << dbgPeerPort << " -Skipping POST filtering because user is unauthed." << std::endl;
 #endif
 
-            if (!checkme.isItNaughty) {
+            if (!checkme.isItNaughty)            {
                 // the request is ok, so we can	now pass it to the proxy, and check the returned header
                 // temp char used in various places here
                 char *i;
 
                 // send header to proxy
-                if (!wasrequested) {
+                if (!wasrequested)                {
                     proxysock.readyForOutput(o.proxy_timeout);
-                    if (isconnect)
-                        header.sslsiteRegExp(filtergroup);
                     header.out(&peerconn, &proxysock, __DGHEADER_SENDALL, true);
 
                     // get header from proxy
                     proxysock.checkForInput(o.exchange_timeout);
                     docheader.in(&proxysock, persistOutgoing);
                     persistProxy = docheader.isPersistent();
-                    persistPeer = persistOutgoing && docheader.wasPersistent();
+                    persistPeer  = persistOutgoing && docheader.wasPersistent();
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -persistPeer: " << persistPeer << std::endl;
 #endif
 
-                    wasrequested = true; // so we know where we are later
+                    wasrequested = true;  // so we know where we are later
                 }
 
 #ifdef DGDEBUG
@@ -2350,12 +2448,12 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
 
                 // if we're not careful, we can end up accidentally setting the bypass cookie twice.
                 // because of the code flow, this second cookie ends up with timestamp 0, and is always disallowed.
-                if (isbypass && !isvirusbypass && !iscookiebypass) {
+                if (isbypass && !isvirusbypass && !iscookiebypass)                {
 #ifdef DGDEBUG
-                    std::cout << "Setting GBYPASS cookie; bypasstimestamp = " << bypasstimestamp << std::endl;
+                    std::cout<<"Setting GBYPASS cookie; bypasstimestamp = "<<bypasstimestamp<<std::endl;
 #endif
                     String ud(urldomain);
-                    if (ud.startsWith("www.")) {
+                    if (ud.startsWith("www."))                    {
                         ud = ud.after("www.");
                     }
 
@@ -2372,7 +2470,7 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     docheader.out(NULL, &peerconn, __DGHEADER_SENDALL);
 
                     if (!persistProxy)
-                        proxysock.close(); // close connection to proxy
+                        proxysock.close();  // close connection to proxy
 
                     break;
                 }
@@ -2381,7 +2479,7 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 // - based on patch supplied by cahya (littlecahya@yahoo.de)
                 // be careful: contentLength is signed, and max_content_filecache_scan_size is unsigned
                 off_t cl = docheader.contentLength();
-                if (!responsescanners.empty()) {
+                if (!responsescanners.empty())                {
                     if (cl == 0)
                         responsescanners.clear();
                     else if ((cl > 0) && (cl > o.max_content_filecache_scan_size))
@@ -2391,19 +2489,21 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 // now that we have the proxy's header too, we can make a better informed decision on whether or not to scan.
                 // this used to be done before we'd grabbed the proxy's header, rendering exceptionvirusmimetypelist useless,
                 // and exceptionvirusextensionlist less effective, because we didn't have a Content-Disposition header.
-                if (!responsescanners.empty()) {
+                if (!responsescanners.empty())
+                {
 #ifdef DGDEBUG
                     std::cerr << dbgPeerPort << " -Number of response CS plugins in candidate list: " << responsescanners.size() << std::endl;
 #endif
-//send header to plugin here needed
-//also send user and group
+                    //send header to plugin here needed
+                    //also send user and group
 #ifdef DGDEBUG
                     int j = 0;
 #endif
                     std::deque<CSPlugin *> newplugins;
-                    for (std::deque<CSPlugin *>::iterator i = responsescanners.begin(); i != responsescanners.end(); ++i) {
+                    for (std::deque<CSPlugin *>::iterator i = responsescanners.begin(); i != responsescanners.end(); ++i)
+                    {
                         int csrc = (*i)->willScanData(header.getUrl(), clientuser.c_str(), filtergroup, clientip.c_str(),
-                            false, false, isexception, isbypass, docheader.disposition(), docheader.getContentType(), docheader.contentLength());
+                                                      false, false, isexception, isbypass, docheader.disposition(), docheader.getContentType(), docheader.contentLength());
 #ifdef DGDEBUG
                         std::cerr << dbgPeerPort << " -willScanData for plugin " << j << " returned: " << csrc << std::endl;
 #endif
@@ -2422,22 +2522,23 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 }
 
                 // no need to check bypass mode, exception mode, auth required headers, redirections, or banned ip/user (the latter get caught by requestChecks later)
-                if (!isexception && !isbypass && !(isbannedip || isbanneduser) && !docheader.isRedirection() && !docheader.authRequired()) {
+                if (!isexception && !isbypass && !(isbannedip || isbanneduser) && !docheader.isRedirection() && !docheader.authRequired())
+                {
                     bool download_exception = false;
 
                     // Check the exception file site and MIME type lists.
                     mimetype = docheader.getContentType().toCharArray();
                     if (o.fg[filtergroup]->inExceptionFileSiteList(urld))
                         download_exception = true;
-                    else {
+                    else                    {
                         if (o.lm.l[o.fg[filtergroup]->exception_mimetype_list]->findInList(mimetype.c_str()))
                             download_exception = true;
                     }
 
                     // Perform banned MIME type matching
-                    if (!download_exception) {
+                    if (!download_exception)                    {
                         // If downloads are blanket blocked, block outright.
-                        if (o.fg[filtergroup]->block_downloads) {
+                        if (o.fg[filtergroup]->block_downloads)                        {
                             // did not match the exception list
                             checkme.whatIsNaughty = o.language_list.getTranslation(750);
                             // Blanket file download is active
@@ -2445,7 +2546,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                             checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
                             checkme.isItNaughty = true;
                             checkme.whatIsNaughtyCategories = "Blanket download block";
-                        } else if ((i = o.lm.l[o.fg[filtergroup]->banned_mimetype_list]->findInList(mimetype.c_str())) != NULL) {
+                        }
+                        else if ((i = o.lm.l[o.fg[filtergroup]->banned_mimetype_list]->findInList(mimetype.c_str())) != NULL)                        {
                             // matched the banned list
                             checkme.whatIsNaughty = o.language_list.getTranslation(800);
                             // Banned MIME Type:
@@ -2463,17 +2565,17 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     }
 
                     // Perform extension matching - if not already matched the exception MIME or site lists
-                    if (!download_exception) {
+                    if (!download_exception)                    {
                         // Can't ban file extensions of URLs that just redirect
                         String tempurl(urld);
                         String tempdispos(docheader.disposition());
                         unsigned int elist, blist;
                         elist = o.fg[filtergroup]->exception_extension_list;
                         blist = o.fg[filtergroup]->banned_extension_list;
-                        char *e = NULL;
-                        char *b = NULL;
-                        if (tempdispos.length() > 1) {
-// dispos filename must take presidense
+                        char* e = NULL;
+                        char* b = NULL;
+                        if (tempdispos.length() > 1)                        {
+                            // dispos filename must take presidense
 #ifdef DGDEBUG
                             std::cout << dbgPeerPort << " -Disposition filename:" << tempdispos << ":" << std::endl;
 #endif
@@ -2484,39 +2586,42 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                             // Only need to check banned list if not blanket blocking
                             if ((e == NULL) && !(o.fg[filtergroup]->block_downloads))
                                 b = o.fg[filtergroup]->inExtensionList(blist, tempdispos);
-                        } else {
-                            if (!tempurl.contains("?")) {
+                        }                        else                        {
+                            if (!tempurl.contains("?"))                            {
                                 e = o.fg[filtergroup]->inExtensionList(elist, tempurl);
                                 if ((e == NULL) && !(o.fg[filtergroup]->block_downloads))
                                     b = o.fg[filtergroup]->inExtensionList(blist, tempurl);
-                            } else if (String(mimetype.c_str()).contains("application/")) {
-                                while (tempurl.endsWith("?")) {
+                            }
+                            else if (String(mimetype.c_str()).contains("application/"))                            {
+                                while (tempurl.endsWith("?"))                                {
                                     tempurl.chop();
                                 }
-                                while (tempurl.contains("/")) { // no slash no url
+                                while (tempurl.contains("/"))  	// no slash no url
+                                {
                                     e = o.fg[filtergroup]->inExtensionList(elist, tempurl);
                                     if (e != NULL)
                                         break;
                                     if (!(o.fg[filtergroup]->block_downloads))
                                         b = o.fg[filtergroup]->inExtensionList(blist, tempurl);
-                                    while (tempurl.contains("/") && !tempurl.endsWith("?")) {
+                                    while (tempurl.contains("/") && !tempurl.endsWith("?"))                                    {
                                         tempurl.chop();
                                     }
-                                    tempurl.chop(); // get rid of the ?
+                                    tempurl.chop();  // get rid of the ?
                                 }
                             }
                         }
 
                         // If downloads are blanket blocked, block unless matched the exception list.
                         // If downloads are not blanket blocked, block if matched the banned list and not the exception list.
-                        if (o.fg[filtergroup]->block_downloads && (e == NULL)) {
+                        if (o.fg[filtergroup]->block_downloads && (e == NULL))                        {
                             // did not match the exception list
                             checkme.whatIsNaughty = o.language_list.getTranslation(751);
                             // Blanket file download is active
                             checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
                             checkme.isItNaughty = true;
                             checkme.whatIsNaughtyCategories = "Blanket download block";
-                        } else if (!(o.fg[filtergroup]->block_downloads) && (e == NULL) && (b != NULL)) {
+                        }
+                        else if (!(o.fg[filtergroup]->block_downloads) && (e == NULL) && (b != NULL))                        {
                             // matched the banned list
                             checkme.whatIsNaughty = o.language_list.getTranslation(900);
                             // Banned extension:
@@ -2524,7 +2629,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                             checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
                             checkme.isItNaughty = true;
                             checkme.whatIsNaughtyCategories = "Banned extension";
-                        } else if (e != NULL) {
+                        }
+                        else if (e != NULL)                        {
                             // intention is to match either/or of the MIME & extension lists
                             // so if it gets this far, un-naughty it (may have been naughtied by the MIME type list)
                             checkme.isItNaughty = false;
@@ -2536,24 +2642,24 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 // want to wait until after the MIME type & extension checks, because they may
                 // act as a quicker rejection. also so as not to pre-emptively ban currently
                 // un-authed users.
-                if (!authed && !isbypass && !isexception && !checkme.isItNaughty && !docheader.authRequired()) {
+                if (!authed && !isbypass && !isexception && !checkme.isItNaughty && !docheader.authRequired())                {
                     requestChecks(&header, &checkme, &urld, &url, &clientip, &clientuser, filtergroup,
-                        isbanneduser, isbannedip, room);
+                                  isbanneduser, isbannedip, room);
                 }
 
                 // check body from proxy
                 // can't do content filtering on HEAD or redirections (no content)
                 // actually, redirections CAN have content
-                if (!checkme.isItNaughty && (cl != 0) && !ishead) {
-                    if (((docheader.isContentType("text",filtergroup) || docheader.isContentType("-",filtergroup)) && !isexception) || !responsescanners.empty()) {
+                if (!checkme.isItNaughty && (cl != 0) && !ishead)                {
+                    if (((docheader.isContentType("text") || docheader.isContentType("-")) && !isexception) || !responsescanners.empty())                    {
                         // don't search the cache if scan_clean_cache disabled & runav true (won't have been cached)
                         // also don't search cache for auth required headers (same reason)
 
                         // checkme: does not searching the cache if scan_clean_cache is disabled break the fancy DM's bypass stuff?
                         // probably, since it uses a "magic" status code in the cache; easier than coding yet another hash type.
 
-                        if (o.url_cache_number > 0 && (o.scan_clean_cache || responsescanners.empty()) && !docheader.authRequired()) {
-                            if (wasClean(header, urld, filtergroup)) {
+                        if (o.url_cache_number > 0 && (o.scan_clean_cache || responsescanners.empty()) && !docheader.authRequired())                        {
+                            if (wasClean(header, urld, filtergroup))                            {
                                 wasclean = true;
                                 cachehit = true;
                                 responsescanners.clear();
@@ -2565,35 +2671,35 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                         // despite the debug note above, we do still go through contentFilter for cached non-exception HTML,
                         // as content replacement rules need to be applied.
                         waschecked = true;
-                        if (!responsescanners.empty()) {
+                        if (!responsescanners.empty())                        {
 #ifdef DGDEBUG
                             std::cout << dbgPeerPort << " -Filtering with expectation of a possible csmessage" << std::endl;
 #endif
                             String csmessage;
                             contentFilter(&docheader, &header, &docbody, &proxysock, &peerconn, &headersent, &pausedtoobig,
-                                &docsize, &checkme, wasclean, filtergroup, responsescanners, &clientuser, &clientip,
-                                &wasinfected, &wasscanned, isbypass, urld, urldomain, &scanerror, contentmodified, &csmessage);
-                            if (csmessage.length() > 0) {
+                                          &docsize, &checkme, wasclean, filtergroup, responsescanners, &clientuser, &clientip,
+                                          &wasinfected, &wasscanned, isbypass, urld, urldomain, &scanerror, contentmodified, &csmessage);
+                            if (csmessage.length() > 0)                            {
 #ifdef DGDEBUG
                                 std::cout << dbgPeerPort << " -csmessage found: " << csmessage << std::endl;
 #endif
                                 exceptionreason = csmessage.toCharArray();
                             }
-                        } else {
+                        }                        else                        {
                             contentFilter(&docheader, &header, &docbody, &proxysock, &peerconn, &headersent, &pausedtoobig,
-                                &docsize, &checkme, wasclean, filtergroup, responsescanners, &clientuser, &clientip,
-                                &wasinfected, &wasscanned, isbypass, urld, urldomain, &scanerror, contentmodified, NULL);
+                                          &docsize, &checkme, wasclean, filtergroup, responsescanners, &clientuser, &clientip,
+                                          &wasinfected, &wasscanned, isbypass, urld, urldomain, &scanerror, contentmodified, NULL);
                         }
                     }
                 }
             }
 
-            if (!isexception && checkme.isException) {
+            if (!isexception && checkme.isException)            {
                 isexception = true;
                 exceptionreason = checkme.whatIsNaughtyLog;
             }
 
-            if (o.url_cache_number > 0) {
+            if (o.url_cache_number > 0)            {
                 // add to cache if: wasn't already there, wasn't naughty, wasn't allowed by bypass/soft block, was text,
                 // was virus scanned and scan_clean_cache is enabled, was a GET request,
                 // and response was not a set of auth required headers (we haven't checked
@@ -2602,9 +2708,10 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 // an entry and does a soft restart, we don't want the site to end up in
                 // the clean cache because someone who's already been to it hits refresh.
                 if (!wasclean && !checkme.isItNaughty && !isbypass
-                    && (docheader.isContentType("text",filtergroup) || (wasscanned && o.scan_clean_cache))
-                    && (header.requestType() == "GET") && (docheader.returnCode() == 200)
-                    && urld.length() < 2000) {
+                        && (docheader.isContentType("text") || (wasscanned && o.scan_clean_cache))
+                        && (header.requestType() == "GET") && (docheader.returnCode() == 200)
+                        && urld.length() < 2000)
+                {
                     addToClean(urld, filtergroup);
                 }
             }
@@ -2613,70 +2720,70 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
             // as exceptions, it needn't. and in fact it mustn't, if bypass requests are to be virus scanned/blocked in the same manner as exceptions.
             // make sure we keep track of whether or not logging has been performed, as we may be in stealth mode and don't want to double log.
             bool logged = false;
-            if (checkme.isItNaughty) {
+            if (checkme.isItNaughty)            {
                 String rtype(header.requestType());
 #ifdef DGDEBUG
-                std::cout << "Category: " << checkme.whatIsNaughtyCategories << std::endl;
+                std::cout<<"Category: "<<checkme.whatIsNaughtyCategories<<std::endl;
 #endif
                 logged = true;
                 doLog(clientuser, clientip, logurl, header.port, checkme.whatIsNaughtyLog,
-                    rtype, docsize, &checkme.whatIsNaughtyCategories, true, checkme.blocktype, false, false, &thestart,
-                    cachehit, 403, mimetype, wasinfected, wasscanned, checkme.naughtiness, filtergroup,
-                    &header, message_no, contentmodified, urlmodified, headermodified, headeradded);
-                if (denyAccess(&peerconn, &proxysock, &header, &docheader, &logurl, &checkme, &clientuser, &clientip, filtergroup, ispostblock, headersent, wasinfected, scanerror)) {
-                    return 0; // not stealth mode
+                      rtype, docsize, &checkme.whatIsNaughtyCategories, true, checkme.blocktype, false, false, &thestart,
+                      cachehit, 403, mimetype, wasinfected, wasscanned, checkme.naughtiness, filtergroup,
+                      &header, message_no, contentmodified, urlmodified, headermodified, headeradded);
+                if (denyAccess(&peerconn, &proxysock, &header, &docheader, &logurl, &checkme, &clientuser,&clientip, filtergroup, ispostblock, headersent, wasinfected, scanerror))
+                {
+                    return 0;  // not stealth mode
                 }
 
                 // if get here in stealth mode
             }
 
-            if (!wasrequested) {
-                proxysock.readyForOutput(o.proxy_timeout); // exceptions on error/timeout
-                if (isconnect)
-                    header.sslsiteRegExp(filtergroup);
-                header.out(&peerconn, &proxysock, __DGHEADER_SENDALL, true); // exceptions on error/timeout
-                proxysock.checkForInput(o.exchange_timeout); // exceptions on error/timeout
-                docheader.in(&proxysock, persistOutgoing); // get reply header from proxy
+            if (!wasrequested)            {
+                proxysock.readyForOutput(o.proxy_timeout);  // exceptions on error/timeout
+                header.out(&peerconn, &proxysock, __DGHEADER_SENDALL, true);  // exceptions on error/timeout
+                proxysock.checkForInput(o.exchange_timeout);  // exceptions on error/timeout
+                docheader.in(&proxysock, persistOutgoing);  // get reply header from proxy
                 persistProxy = docheader.isPersistent();
-                persistPeer = persistOutgoing && docheader.wasPersistent();
+                persistPeer  = persistOutgoing && docheader.wasPersistent();
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -persistPeer: " << persistPeer << std::endl;
 #endif
             }
 
-//TODO: need to change connection: close if there is plugin involved.
+            //TODO: need to change connection: close if there is plugin involved.
 #ifdef DGDEBUG
             std::cout << dbgPeerPort << " -sending header to client" << std::endl;
 #endif
-            peerconn.readyForOutput(o.proxy_timeout); // exceptions on error/timeout
-            if (headersent == 1) {
-                docheader.out(NULL, &peerconn, __DGHEADER_SENDREST); // send rest of header to client
+            peerconn.readyForOutput(o.proxy_timeout);  // exceptions on error/timeout
+            if (headersent == 1)            {
+                docheader.out(NULL, &peerconn, __DGHEADER_SENDREST);  // send rest of header to client
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -sent rest header to client" << std::endl;
 #endif
-            } else if (headersent == 0) {
-                docheader.out(NULL, &peerconn, __DGHEADER_SENDALL); // send header to client
+            }
+            else if (headersent == 0)            {
+                docheader.out(NULL, &peerconn, __DGHEADER_SENDALL);  // send header to client
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -sent all header to client" << std::endl;
 #endif
             }
 
-            if (waschecked) {
-                if (!docheader.authRequired() && !pausedtoobig) {
+            if (waschecked)            {
+                if (!docheader.authRequired() && !pausedtoobig)                {
                     String rtype(header.requestType());
-                    if (!logged) {
+                    if (!logged)                    {
                         doLog(clientuser, clientip, logurl, header.port, exceptionreason,
-                            rtype, docsize, &checkme.whatIsNaughtyCategories, false, 0, isexception,
-                            docheader.isContentType("text",filtergroup), &thestart, cachehit, docheader.returnCode(), mimetype,
-                            wasinfected, wasscanned, checkme.naughtiness, filtergroup, &header, message_no,
-                            contentmodified, urlmodified, headermodified, headeradded);
+                              rtype, docsize, &checkme.whatIsNaughtyCategories, false, 0, isexception,
+                              docheader.isContentType("text"), &thestart, cachehit, docheader.returnCode(), mimetype,
+                              wasinfected, wasscanned, checkme.naughtiness, filtergroup, &header, message_no,
+                              contentmodified, urlmodified, headermodified, headeradded);
                     }
                 }
 
-                peerconn.readyForOutput(o.proxy_timeout); // check for error/timeout needed
+                peerconn.readyForOutput(o.proxy_timeout);  // check for error/timeout needed
 
                 // it must be clean if we got here
-                if (docbody.dontsendbody && docbody.tempfilefd > -1) {
+                if (docbody.dontsendbody && docbody.tempfilefd > -1)                {
                     // must have been a 'fancy'
                     // download manager so we need to send a special link which
                     // will get recognised and cause DG to send the temp file to
@@ -2698,12 +2805,12 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     std::cout << dbgPeerPort << " -sending magic link to client: " << ip << " " << url << " " << tempfilename << " " << tempfilemime << " " << tempfiledis << " " << secret << " " << hashed << std::endl;
 #endif
                     String sendurl(url);
-                    if (!sendurl.after("://").contains("/")) {
+                    if (!sendurl.after("://").contains("/"))                    {
                         sendurl += "/";
                     }
-                    if (sendurl.contains("?")) {
+                    if (sendurl.contains("?"))                    {
                         sendurl = sendurl + "&GSBYPASS=" + hashed + "&N=";
-                    } else {
+                    }                    else                    {
                         sendurl = sendurl + "?GSBYPASS=" + hashed + "&N=";
                     }
                     sendurl += tempfilename + "&M=" + tempfilemime + "&D=" + tempfiledis;
@@ -2712,20 +2819,20 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     // can't persist after this - DM plugins don't generally send a Content-Length.
                     //TODO: need to change connection: close if there is plugin involved.
                     persistOutgoing = false;
-                } else {
+                }                else                {
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -sending body to client" << std::endl;
 #endif
-                    docbody.out(&peerconn); // send doc body to client
+                    docbody.out(&peerconn);  // send doc body to client
                 }
 #ifdef DGDEBUG
-                if (pausedtoobig) {
+                if (pausedtoobig)                {
                     std::cout << dbgPeerPort << " -sent PARTIAL body to client" << std::endl;
-                } else {
+                }                else                {
                     std::cout << dbgPeerPort << " -sent body to client" << std::endl;
                 }
 #endif
-                if (pausedtoobig && !docbody.dontsendbody) {
+                if (pausedtoobig && !docbody.dontsendbody)                {
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -about to start tunnel to send the rest" << std::endl;
 #endif
@@ -2736,15 +2843,15 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                     fdt.tunnel(proxysock, peerconn, false, docheader.contentLength() - docsize, true);
                     docsize += fdt.throughput;
                     String rtype(header.requestType());
-                    if (!logged) {
+                    if (!logged)                    {
                         doLog(clientuser, clientip, logurl, header.port, exceptionreason,
-                            rtype, docsize, &checkme.whatIsNaughtyCategories, false, 0, isexception,
-                            docheader.isContentType("text",filtergroup), &thestart, cachehit, docheader.returnCode(), mimetype,
-                            wasinfected, wasscanned, checkme.naughtiness, filtergroup, &header, message_no,
-                            contentmodified, urlmodified, headermodified, headeradded);
+                              rtype, docsize, &checkme.whatIsNaughtyCategories, false, 0, isexception,
+                              docheader.isContentType("text"), &thestart, cachehit, docheader.returnCode(), mimetype,
+                              wasinfected, wasscanned, checkme.naughtiness, filtergroup, &header, message_no,
+                              contentmodified, urlmodified, headermodified, headeradded);
                     }
                 }
-            } else if (!ishead) {
+            }            else if (!ishead)            {
                 // was not supposed to be checked
                 fdt.reset();
 #ifdef DGDEBUG
@@ -2753,12 +2860,12 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 fdt.tunnel(proxysock, peerconn, isconnect, docheader.contentLength(), true);
                 docsize = fdt.throughput;
                 String rtype(header.requestType());
-                if (!logged) {
+                if (!logged)                {
                     doLog(clientuser, clientip, logurl, header.port, exceptionreason,
-                        rtype, docsize, &checkme.whatIsNaughtyCategories, false, 0, isexception,
-                        docheader.isContentType("text",filtergroup), &thestart, cachehit, docheader.returnCode(), mimetype,
-                        wasinfected, wasscanned, checkme.naughtiness, filtergroup, &header, message_no,
-                        contentmodified, urlmodified, headermodified, headeradded);
+                          rtype, docsize, &checkme.whatIsNaughtyCategories, false, 0, isexception,
+                          docheader.isContentType("text"), &thestart, cachehit, docheader.returnCode(), mimetype,
+                          wasinfected, wasscanned, checkme.naughtiness, filtergroup, &header, message_no,
+                          contentmodified, urlmodified, headermodified, headeradded);
                 }
             }
 
@@ -2766,7 +2873,9 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
                 proxysock.close();
 
         } // while persistOutgoing
-    } catch (postfilter_exception &e) {
+    }
+    catch (postfilter_exception &e)
+    {
 #ifdef DGDEBUG
         std::cerr << dbgPeerPort << " -connection handler caught a POST filtering exception: " << e.what() << std::endl;
 #endif
@@ -2776,7 +2885,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
         proxysock.close();
 
         return 0;
-    } catch (std::exception &e) {
+    }
+    catch (std::exception & e)    {
 #ifdef DGDEBUG
         std::cerr << dbgPeerPort << " -connection handler caught an exception: " << e.what() << std::endl;
 #endif
@@ -2787,8 +2897,7 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
         return 0;
     }
 
-    if (!ismitm)
-        try {
+    if (!ismitm) try        {
 #ifdef DGDEBUG
             std::cout << dbgPeerPort << " -Attempting graceful connection close" << std::endl;
 #endif
@@ -2800,7 +2909,8 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
 
             // close connection to the client
             peerconn.close();
-        } catch (std::exception &e) {
+        }
+        catch (std::exception & e)        {
 #ifdef DGDEBUG
             std::cerr << dbgPeerPort << " -connection handler caught an exception: " << e.what() << std::endl;
 #endif
@@ -2811,20 +2921,25 @@ int ConnectionHandler::handleConnection(Socket &peerconn, String &ip, bool ismit
     return 0;
 }
 
+
 // decide whether or not to perform logging, categorise the log entry, and write it.
 void ConnectionHandler::doLog(std::string &who, std::string &from, String &where, unsigned int &port,
-    std::string &what, String &how, off_t &size, std::string *cat, bool isnaughty, int naughtytype,
-    bool isexception, bool istext, struct timeval *thestart, bool cachehit,
-    int code, std::string &mimetype, bool wasinfected, bool wasscanned, int naughtiness, int filtergroup,
-    HTTPHeader *reqheader, int message_no, bool contentmodified, bool urlmodified, bool headermodified, bool headeradded)
+                              std::string &what, String &how, off_t &size, std::string *cat, bool isnaughty, int naughtytype,
+                              bool isexception, bool istext, struct timeval *thestart, bool cachehit,
+                              int code, std::string &mimetype, bool wasinfected, bool wasscanned, int naughtiness, int filtergroup,
+                              HTTPHeader* reqheader, int message_no, bool contentmodified, bool urlmodified, bool headermodified, bool headeradded)
 {
 
     // don't log if logging disabled entirely, or if it's an ad block and ad logging is disabled,
     // or if it's an exception and exception logging is disabled
     if (
-        (o.ll == 0) || ((cat != NULL) && !o.log_ad_blocks && (strstr(cat->c_str(), "ADs") != NULL)) || ((o.log_exception_hits == 0) && isexception)) {
+        (o.ll == 0) ||
+        ((cat != NULL) && !o.log_ad_blocks && (strstr(cat->c_str(),"ADs") != NULL)) ||
+        ((o.log_exception_hits == 0) && isexception))
+    {
 #ifdef DGDEBUG
-        if (o.ll != 0) {
+        if (o.ll != 0)
+        {
             if (isexception)
                 std::cout << dbgPeerPort << " -Not logging exceptions" << std::endl;
             else
@@ -2837,14 +2952,15 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
     std::string data, cr("\n");
 
     if ((isexception && (o.log_exception_hits == 2))
-        || isnaughty || o.ll == 3 || (o.ll == 2 && istext)) {
+            || isnaughty || o.ll == 3 || (o.ll == 2 && istext))
+    {
         // put client hostname in log if enabled.
         // for banned & exception IP/hostname matches, we want to output exactly what was matched against,
         // be it hostname or IP - therefore only do lookups here when we don't already have a cached hostname,
         // and we don't have a straight IP match agaisnt the banned or exception IP lists.
-        if (o.log_client_hostnames && (clienthost == NULL) && !matchedip && !o.anonymise_logs) {
+        if (o.log_client_hostnames && (clienthost == NULL) && !matchedip && !o.anonymise_logs)        {
 #ifdef DGDEBUG
-            std::cout << "logclienthostnames enabled but reverseclientiplookups disabled; lookup forced." << std::endl;
+            std::cout<<"logclienthostnames enabled but reverseclientiplookups disabled; lookup forced."<<std::endl;
 #endif
             std::deque<String> *names = ipToHostname(from.c_str());
             if (names->size() > 0)
@@ -2854,30 +2970,27 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
 
         // Search 'log-only' domain, url and regexp url lists
         std::string *newcat = NULL;
-        if (!cat || cat->length() == 0) {
+        if (!cat || cat->length() == 0)        {
 #ifdef DGDEBUG
             std::cout << dbgPeerPort << " -Checking for log-only categories" << std::endl;
 #endif
-            const char *c = o.fg[filtergroup]->inLogSiteList(where);
+            const char* c = o.fg[filtergroup]->inLogSiteList(where);
 #ifdef DGDEBUG
-            if (c)
-                std::cout << dbgPeerPort << " -Found log-only domain category: " << c << std::endl;
+            if (c) std::cout << dbgPeerPort << " -Found log-only domain category: " << c << std::endl;
 #endif
-            if (!c) {
+            if (!c)            {
                 c = o.fg[filtergroup]->inLogURLList(where);
 #ifdef DGDEBUG
-                if (c)
-                    std::cout << dbgPeerPort << " -Found log-only URL category: " << c << std::endl;
+                if (c) std::cout << dbgPeerPort << " -Found log-only URL category: " << c << std::endl;
 #endif
             }
-            if (!c) {
+            if (!c)            {
                 c = o.fg[filtergroup]->inLogRegExpURLList(where);
 #ifdef DGDEBUG
-                if (c)
-                    std::cout << dbgPeerPort << " -Found log-only regexp URL category: " << c << std::endl;
+                if (c) std::cout << dbgPeerPort << " -Found log-only regexp URL category: " << c << std::endl;
 #endif
             }
-            if (c) {
+            if (c)            {
                 newcat = new std::string(c);
                 cat = newcat;
             }
@@ -2889,14 +3002,15 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
 
         // Build up string describing POST data parts, if any
         std::ostringstream postdata;
-        for (std::list<postinfo>::iterator i = postparts.begin(); i != postparts.end(); ++i) {
+        for (std::list<postinfo>::iterator i = postparts.begin(); i != postparts.end(); ++i)
+        {
             // Replace characters which would break log format with underscores
             std::string::size_type loc = 0;
             while ((loc = i->filename.find_first_of(",;\t ", loc)) != std::string::npos)
                 i->filename[loc] = '_';
             // Build up contents of log column
             postdata << i->mimetype << "," << i->filename << "," << i->size
-                     << "," << i->blocked << "," << i->storedname << "," << i->bodyoffset << ";";
+            << "," << i->blocked << "," << i->storedname << "," << i->bodyoffset << ";";
         }
         postdata << std::flush;
 
@@ -2916,29 +3030,29 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
         std::cout << dbgPeerPort << " -Building raw log data string... ";
 #endif
 
-        data = String(isexception) + cr;
-        data += (cat ? (*cat) + cr : cr);
-        data += String(isnaughty) + cr;
-        data += String(naughtytype) + cr;
-        data += String(naughtiness) + cr;
-        data += where + cr;
-        data += what + cr;
-        data += how + cr;
-        data += who + cr;
-        data += from + cr;
-        data += String(port) + cr;
-        data += String(wasscanned) + cr;
-        data += String(wasinfected) + cr;
-        data += String(contentmodified) + cr;
-        data += String(urlmodified) + cr;
-        data += String(headermodified) + cr;
-        data += String(size) + cr;
-        data += String(filtergroup) + cr;
-        data += String(code) + cr;
-        data += String(cachehit) + cr;
-        data += String(mimetype) + cr;
-        data += String((*thestart).tv_sec) + cr;
-        data += String((*thestart).tv_usec) + cr;
+        data = String(isexception)+cr;
+        data += ( cat ? (*cat) + cr : cr);
+        data += String(isnaughty)+cr;
+        data += String(naughtytype)+cr;
+        data += String(naughtiness)+cr;
+        data += where+cr;
+        data += what+cr;
+        data += how+cr;
+        data += who+cr;
+        data += from+cr;
+        data += String(port)+cr;
+        data += String(wasscanned)+cr;
+        data += String(wasinfected)+cr;
+        data += String(contentmodified)+cr;
+        data += String(urlmodified)+cr;
+        data += String(headermodified)+cr;
+        data += String(size)+cr;
+        data += String(filtergroup)+cr;
+        data += String(code)+cr;
+        data += String(cachehit)+cr;
+        data += String(mimetype)+cr;
+        data += String((*thestart).tv_sec)+cr;
+        data += String((*thestart).tv_usec)+cr;
         data += (clienthost ? (*clienthost) + cr : cr);
         if (o.log_user_agent)
             data += (reqheader ? reqheader->userAgent() + cr : cr);
@@ -2946,8 +3060,8 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
             data += cr;
         data += urlparams + cr;
         data += postdata.str().c_str() + cr;
-        data += String(message_no) + cr;
-        data += String(headeradded) + cr;
+        data += String(message_no)+cr;
+        data += String(headeradded)+cr;
 
 #ifdef DGDEBUG
         std::cout << dbgPeerPort << " -...built" << std::endl;
@@ -2957,13 +3071,13 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
 
         // connect to dedicated logging proc
         UDSocket ipcsock;
-        if (ipcsock.getFD() < 0) {
+        if (ipcsock.getFD() < 0)        {
             if (!is_daemonised)
                 std::cout << " -Error creating IPC socket to log" << std::endl;
             syslog(LOG_ERR, "Error creating IPC socket to log");
             return;
         }
-        if (ipcsock.connect(o.ipc_filename.c_str()) < 0) {
+        if (ipcsock.connect(o.ipc_filename.c_str()) < 0)        {
             if (!is_daemonised)
                 std::cout << " -Error connecting via IPC socket to log: " << strerror(errno) << std::endl;
             syslog(LOG_ERR, "Error connecting via IPC socket to log: %s", strerror(errno));
@@ -2972,11 +3086,11 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
         }
 
         // send data
-        try {
+        try        {
             ipcsock.setTimeout(10);
             ipcsock.writeString(data.c_str());
             ipcsock.close();
-        } catch (std::exception &e) {
+        }        catch (std::exception &e)        {
             syslog(LOG_INFO, "Could not write to logging process: %s", e.what());
 #ifdef DGDEBUG
             std::cout << dbgPeerPort << " -Could not write to logging process: " << e.what() << std::endl;
@@ -2985,39 +3099,21 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
     }
 }
 
+// Request Checks for the eCAP system - can't get several of the params of the original implementation
+void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme,
+        String *urld, String *url, int filtergroup)
+{
+    std::string empty("");
+    bool FALSE = false;
+
+    requestChecks(header, checkme, urld, url, &empty, &empty, filtergroup, FALSE, FALSE, empty);
+}
+
 // check the request header is OK (client host/user/IP allowed to browse, site not banned, upload not too big)
 void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme, String *urld, String *url,
-    std::string *clientip, std::string *clientuser, int filtergroup,
-    bool &isbanneduser, bool &isbannedip, std::string &room)
+                                      std::string *clientip, std::string *clientuser, int filtergroup,
+                                      bool &isbanneduser, bool &isbannedip, std::string &room)
 {
-    if (isbannedip) {
-        (*checkme).isItNaughty = true;
-        (*checkme).whatIsNaughtyLog = o.language_list.getTranslation(100);
-        (*checkme).message_no = 100;
-        // Your IP address is not allowed to web browse:
-        (*checkme).whatIsNaughtyLog += clienthost ? *clienthost : *clientip;
-        (*checkme).whatIsNaughty = o.language_list.getTranslation(101);
-        (*checkme).message_no = 101;
-        // Your IP address is not allowed to web browse.
-        if (room.empty())
-            (*checkme).whatIsNaughtyCategories = o.language_list.getTranslation(103);
-        else {
-            checkme->whatIsNaughtyCategories = o.language_list.getTranslation(104);
-            checkme->whatIsNaughtyLog.append(o.language_list.getTranslation(51));
-            checkme->whatIsNaughtyLog.append(room);
-        }
-        return;
-    } else if (isbanneduser) {
-        (*checkme).isItNaughty = true;
-        (*checkme).whatIsNaughtyLog = o.language_list.getTranslation(102);
-        (*checkme).message_no = 102;
-        // Your username is not allowed to web browse:
-        (*checkme).whatIsNaughtyLog += (*clientuser);
-        (*checkme).whatIsNaughty = (*checkme).whatIsNaughtyLog;
-        (*checkme).whatIsNaughtyCategories = o.language_list.getTranslation(105);
-        return;
-    }
-
     char *i;
     int j;
     String temp;
@@ -3027,8 +3123,8 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
 
     // search term blocking - MOVED to after Banned checks
 
-    if ((*o.fg[filtergroup]).enable_regex_grey) {
-        if ((j = (*o.fg[filtergroup]).inBannedRegExpURLList(temp)) >= 0) {
+    if ((*o.fg[filtergroup]).enable_regex_grey)    {
+        if ((j = (*o.fg[filtergroup]).inBannedRegExpURLList(temp)) >= 0)        {
             (*checkme).isItNaughty = true;
             (*checkme).whatIsNaughtyLog = o.language_list.getTranslation(503);
             (*checkme).message_no = 503;
@@ -3037,7 +3133,8 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
             (*checkme).whatIsNaughty = o.language_list.getTranslation(504);
             // Banned Regular Expression URL found.
             (*checkme).whatIsNaughtyCategories = (*o.lm.l[(*o.fg[filtergroup]).banned_regexpurl_list_ref[j]]).category.toCharArray();
-        } else if ((j = o.fg[filtergroup]->inBannedRegExpHeaderList(header->header)) >= 0) {
+        }
+        else if ((j = o.fg[filtergroup]->inBannedRegExpHeaderList(header->header)) >= 0)        {
             checkme->isItNaughty = true;
             checkme->whatIsNaughtyLog = o.language_list.getTranslation(508);
             (*checkme).message_no = 508;
@@ -3047,31 +3144,38 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
         }
     }
 
-    if (checkme->isItNaughty) { // why bother with checking anything else!!!!
+
+    if ( checkme->isItNaughty )       // why bother with checking anything else!!!!
+    {
+#ifdef DGDEBUG
+            std::cout << "Returning after first RequestCheck." << std::endl;
+#endif
         return;
     }
 
-    if (!(*checkme).isGrey
-        && ((*o.fg[filtergroup]).inGreySiteList(temp, true, is_ip, is_ssl) || (*o.fg[filtergroup]).inGreyURLList(temp, true, is_ip, is_ssl))) {
+    if ( !(*checkme).isGrey
+            && ( (*o.fg[filtergroup]).inGreySiteList(temp, true, is_ip, is_ssl) || (*o.fg[filtergroup]).inGreyURLList(temp, true, is_ip, is_ssl)))    {
         (*checkme).isGrey = true;
         if (!(*o.fg[filtergroup]).enable_ssl_legacy_logic)
-            if (is_ssl)
-                (*checkme).isSSLGrey = true;
+            if (is_ssl) (*checkme).isSSLGrey = true;
     }
 
     // only apply bans to things not in the grey lists
-    if (!(*checkme).isGrey) {
-        if ((i = (*o.fg[filtergroup]).inBannedSiteList(temp, true, is_ip, is_ssl)) != NULL) {
+    if ( !(*checkme).isGrey)    {
+        if ((i = (*o.fg[filtergroup]).inBannedSiteList(temp, true, is_ip, is_ssl)) != NULL)        {
             // need to reintroduce ability to produce the blanket block messages
-            (*checkme).whatIsNaughty = o.language_list.getTranslation(500); // banned site
+            (*checkme).whatIsNaughty = o.language_list.getTranslation(500);  // banned site
             (*checkme).message_no = 500;
             (*checkme).whatIsNaughty += i;
             (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty;
             (*checkme).isItNaughty = true;
             (*checkme).whatIsNaughtyCategories = (*o.lm.l[(*o.fg[filtergroup]).banned_site_list]).lastcategory.toCharArray();
+#ifdef DGDEBUG
+            std::cout << "Returning, site in banned list" << std::endl;
+#endif
             return;
         }
-        if ((i = (*o.fg[filtergroup]).inBannedURLList(temp, true, is_ip, is_ssl)) != NULL) {
+        if ((i = (*o.fg[filtergroup]).inBannedURLList(temp, true, is_ip, is_ssl)) != NULL)        {
             (*checkme).whatIsNaughty = o.language_list.getTranslation(501);
             (*checkme).message_no = 501;
             // Banned URL:
@@ -3079,11 +3183,15 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
             (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty;
             (*checkme).isItNaughty = true;
             (*checkme).whatIsNaughtyCategories = (*o.lm.l[(*o.fg[filtergroup]).banned_url_list]).lastcategory.toCharArray();
+#ifdef DGDEBUG
+            std::cout << "Returning, URL in banned list" << std::endl;
+#endif
             return;
         }
         // when enable_regex_grey is false no urls will be test against regex
-        if (!(*o.fg[filtergroup]).enable_regex_grey) {
-            if ((j = (*o.fg[filtergroup]).inBannedRegExpURLList(temp)) >= 0) {
+        if (!(*o.fg[filtergroup]).enable_regex_grey)        {
+            if ((j = (*o.fg[filtergroup]).inBannedRegExpURLList(temp)) >= 0 )
+            {
                 (*checkme).isItNaughty = true;
                 (*checkme).whatIsNaughtyLog = o.language_list.getTranslation(503);
                 (*checkme).message_no = 503;
@@ -3092,45 +3200,51 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
                 (*checkme).whatIsNaughty = o.language_list.getTranslation(504);
                 // Banned Regular Expression URL found.
                 (*checkme).whatIsNaughtyCategories = (*o.lm.l[(*o.fg[filtergroup]).banned_regexpurl_list_ref[j]]).category.toCharArray();
+#ifdef DGDEBUG
+            std::cout << "Returning, URL in banned RegExp URL list" << std::endl;
+#endif
                 return;
             }
-            if ((j = o.fg[filtergroup]->inBannedRegExpHeaderList(header->header)) >= 0) {
+            if ((j = o.fg[filtergroup]->inBannedRegExpHeaderList(header->header)) >= 0)            {
                 checkme->isItNaughty = true;
                 checkme->whatIsNaughtyLog = o.language_list.getTranslation(508);
                 checkme->message_no = 508;
                 checkme->whatIsNaughtyLog += o.fg[filtergroup]->banned_regexpheader_list_source[j].toCharArray();
                 checkme->whatIsNaughty = o.language_list.getTranslation(509);
                 checkme->whatIsNaughtyCategories = o.lm.l[o.fg[filtergroup]->banned_regexpheader_list_ref[j]]->category.toCharArray();
+#ifdef DGDEBUG
+            std::cout << "Returning, banned RegExp header found" << std::endl;
+#endif
                 return;
             }
         }
         // look for URLs within URLs - ban, for example, images originating from banned sites during a Google image search.
-        if ((*o.fg[filtergroup]).deep_url_analysis) {
+        if ((*o.fg[filtergroup]).deep_url_analysis)        {
 #ifdef DGDEBUG
             std::cout << dbgPeerPort << " -starting deep analysis" << std::endl;
 #endif
             String deepurl(temp.after("p://"));
-            deepurl = header->decode(deepurl, true);
-            while (deepurl.contains(":")) {
+            deepurl = header->decode(deepurl,true);
+            while (deepurl.contains(":"))            {
                 deepurl = deepurl.after(":");
-                while (deepurl.startsWith(":") || deepurl.startsWith("/")) {
+                while (deepurl.startsWith(":") || deepurl.startsWith("/"))                {
                     deepurl.lop();
                 }
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -deep analysing: " << deepurl << std::endl;
 #endif
-
-                if ((*o.fg[filtergroup]).enable_local_list) {
+                if ((*o.fg[filtergroup]).enable_local_list)                {
                     if (o.fg[filtergroup]->inLocalExceptionSiteList(deepurl)
-                        || o.fg[filtergroup]->inLocalGreySiteList(deepurl)
-                        || o.fg[filtergroup]->inLocalExceptionURLList(deepurl)
-                        || o.fg[filtergroup]->inLocalGreyURLList(deepurl)) {
+                            || o.fg[filtergroup]->inLocalGreySiteList(deepurl)
+                            || o.fg[filtergroup]->inLocalExceptionURLList(deepurl)
+                            || o.fg[filtergroup]->inLocalGreyURLList(deepurl))
+                    {
 #ifdef DGDEBUG
                         std::cout << "deep site found in exception/grey list; skipping" << std::endl;
 #endif
                         continue;
                     }
-                    if ((i = (*o.fg[filtergroup]).inLocalBannedSiteList(deepurl)) != NULL) {
+                    if ((i = (*o.fg[filtergroup]).inLocalBannedSiteList(deepurl)) != NULL)                    {
                         (*checkme).whatIsNaughty = o.language_list.getTranslation(500); // banned site
                         (*checkme).message_no = 500;
                         (*checkme).whatIsNaughty += i;
@@ -3140,7 +3254,8 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
 #ifdef DGDEBUG
                         std::cout << "deep site: " << deepurl << std::endl;
 #endif
-                    } else if ((i = (*o.fg[filtergroup]).inLocalBannedURLList(deepurl)) != NULL) {
+                    }
+                    else if ((i = (*o.fg[filtergroup]).inLocalBannedURLList(deepurl)) != NULL)                    {
                         (*checkme).whatIsNaughty = o.language_list.getTranslation(501);
                         (*checkme).message_no = 501;
                         // Banned URL:
@@ -3153,16 +3268,17 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
 #endif
                     }
                 }
-                if ((!(*checkme).isItNaughty)) {
-                    if (o.fg[filtergroup]->inExceptionSiteList(deepurl) || o.fg[filtergroup]->inGreySiteList(deepurl)
-                        || o.fg[filtergroup]->inExceptionURLList(deepurl) || o.fg[filtergroup]->inGreyURLList(deepurl))
+                if ((!(*checkme).isItNaughty) )                {
+                    if ( o.fg[filtergroup]->inExceptionSiteList(deepurl) || o.fg[filtergroup]->inGreySiteList(deepurl)
+                            || o.fg[filtergroup]->inExceptionURLList(deepurl) || o.fg[filtergroup]->inGreyURLList(deepurl))
 
                     {
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << " -deep site found in exception/grey list; skipping" << std::endl;
 #endif
                         continue;
-                    } else if ((i = (*o.fg[filtergroup]).inBannedSiteList(deepurl)) != NULL) {
+                    }
+                    else if ((i = (*o.fg[filtergroup]).inBannedSiteList(deepurl)) != NULL)                    {
                         (*checkme).whatIsNaughty = o.language_list.getTranslation(500); // banned site
                         (*checkme).whatIsNaughty += i;
                         (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty;
@@ -3172,7 +3288,8 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
 #ifdef DGDEBUG
                         std::cout << dbgPeerPort << " -deep site: " << deepurl << std::endl;
 #endif
-                    } else if ((i = (*o.fg[filtergroup]).inBannedURLList(deepurl)) != NULL) {
+                    }
+                    else if ((i = (*o.fg[filtergroup]).inBannedURLList(deepurl)) != NULL)                    {
                         (*checkme).whatIsNaughty = o.language_list.getTranslation(501);
                         (*checkme).message_no = 501;
                         // Banned URL:
@@ -3190,7 +3307,10 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
             std::cout << dbgPeerPort << " -done deep analysis" << std::endl;
 #endif
 
-            if ((*checkme).isItNaughty) {
+            if ( (*checkme).isItNaughty) {
+#ifdef DGDEBUG
+            std::cout << "Returning, deep analysis discovered banned stuff" << std::endl;
+#endif
                 return;
             }
         }
@@ -3200,122 +3320,73 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
     // So now check for search etc.
 
     // search term blocking - apply even to things in grey lists, as it's a form of content filtering
-    // don't bother with SSL sites, though.  note that we must pass in the non-hex-decoded URL in
-    // order for regexes to be able to split up parameters reliably.
-    if (!is_ssl) {
+    // Note that we must pass in the non-hex-decoded URL in
+    // order for regexes to be able to split up parameters reliably
+    (*checkme).isSearch = (*header).isSearch(filtergroup);
+    if ((*checkme).isSearch)        {
+#ifdef DGDEBUG
+            std::cout << dbgPeerPort << "Request was search." << std::endl;
+#endif
 
-        (*checkme).isSearch = (*header).isSearch(filtergroup);
-        if ((*checkme).isSearch) {
-            String terms;
-            terms = (*header).searchwords();
-            if  (!(*o.fg[filtergroup]).inBannedSearchOverideList(terms)) {
-            // first check banned search list
-                if ((i = (*o.fg[filtergroup]).inBannedSearchList(terms)) != NULL) {
-                (*checkme).whatIsNaughty = o.language_list.getTranslation(521);
-                (*checkme).message_no = 521;
-                // Banned search term:
-                (*checkme).whatIsNaughty += i;
-                (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty;
-                (*checkme).isItNaughty = true;
-                (*checkme).whatIsNaughtyCategories = (*o.lm.l[(*o.fg[filtergroup]).banned_search_list]).lastcategory.toCharArray();
+        if ((i = (*o.fg[filtergroup]).inBannedSearchList((*header).searchwords())) != NULL)            {
+#ifdef DGDEBUG
+            std::cout << dbgPeerPort << "Identified as banned search" << std::endl;
+#endif
+            (*checkme).whatIsNaughty = o.language_list.getTranslation(521);
+            (*checkme).message_no = 521;
+            // Banned search term:
+            (*checkme).whatIsNaughty += i;
+            (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty;
+            (*checkme).isItNaughty = true;
+            (*checkme).whatIsNaughtyCategories = (*o.lm.l[(*o.fg[filtergroup]).banned_search_list]).lastcategory.toCharArray();
+#ifdef DGDEBUG
+            std::cout << "Returning, this was a banned search" << std::endl;
+#endif
+            return;
+        }
+    } else {
+        std::cout << "Request was NOT a search" << std::endl;
+    }
+    if ((*checkme).isSearch)        {
+        String terms;
+        terms = (*header).searchterms();
+        // search terms are URL parameter type "0"
+        urlparams.append("0=").append(terms).append(";");
+        if (o.fg[filtergroup]->searchterm_limit > 0)            {
+#ifdef DGDEBUG
+            std::cout << dbgPeerPort << "Exceeded search term limit" << std::endl;
+#endif
+            // Add spaces at beginning and end of block before filtering, so
+            // that the quick & dirty trick of putting spaces around words
+            // (Scunthorpe problem) can still be used, bearing in mind the block
+            // of text here is usually very small.
+            terms.insert(terms.begin(),' ');
+            terms.append(" ");
+            checkme->checkme(terms.c_str(), terms.length(), NULL, NULL, filtergroup,
+                (o.fg[filtergroup]->searchterm_flag ? o.fg[filtergroup]->searchterm_list : o.fg[filtergroup]->banned_phrase_list),
+                 o.fg[filtergroup]->searchterm_limit, true);
+            if (checkme->isItNaughty)
+            {
+                checkme->blocktype = 2;
+#ifdef DGDEBUG
+                std::cout << "Returning, search term limit exceeded" << std::endl;
+#endif
                 return;
-                }
-                // then check phrase lists
-                if (o.fg[filtergroup]->searchterm_limit > 0) {
-                    terms = (*header).searchterms();
-                    // search terms are URL parameter type "0"
-                    urlparams.append("0=").append(terms).append(";");
-                    // Add spaces at beginning and end of block before filtering, so
-                    // that the quick & dirty trick of putting spaces around words
-                    // (Scunthorpe problem) can still be used, bearing in mind the block
-                    // of text here is usually very small.
-                    terms.insert(terms.begin(), ' ');
-                    terms.append(" ");
-                    checkme->checkme(terms.c_str(), terms.length(), NULL, NULL, filtergroup,
-                                     (o.fg[filtergroup]->searchterm_flag ? o.fg[filtergroup]->searchterm_list
-                                                                         : o.fg[filtergroup]->banned_phrase_list),
-                                     o.fg[filtergroup]->searchterm_limit, true);
-                    if (checkme->isItNaughty) {
-                        checkme->blocktype = 2;
-                        return;
-                    }
-                }
             }
         }
     }
-
-#ifdef __SSLMITM
-    //check the certificate if
-    //its a connect,
-    //ssl cert checking is enabled,
-    //ssl mitm is disabled (will get checked by that anyway)
-    //its a connection to port 443
-    if (is_ssl && !((*checkme).isItNaughty) && (*o.fg[filtergroup]).ssl_check_cert && !(*o.fg[filtergroup]).ssl_mitm && (*header).port == 443) {
-
 #ifdef DGDEBUG
-        std::cout << dbgPeerPort << " -checking SSL certificate" << std::endl;
+    std::cout << "Returning, not blocked" << std::endl;
 #endif
-
-        Socket ssl_sock;
-        //connect to the local proxy then do a connect
-        //to make sure we go through any upstream proxys
-        if (ssl_sock.connect(o.proxy_ip.c_str(), o.proxy_port) < 0) {
-            //(*checkme).whatIsNaughty = "Could not connect to proxy server" ;
-            (*checkme).message_no = 159;
-            (*checkme).whatIsNaughty = o.language_list.getTranslation(159);
-            (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty;
-            (*checkme).isItNaughty = true;
-            (*checkme).whatIsNaughtyCategories = o.language_list.getTranslation(70);
-#ifdef DGDEBUG
-            syslog(LOG_ERR, "error opening socket\n");
-            std::cout << dbgPeerPort << " -couldnt connect to proxy for ssl certificate checks. failed with error " << strerror(errno) << std::endl;
-#endif
-            return;
-        }
-
-#ifdef DGDEBUG
-        std::cout << dbgPeerPort << " -connected to proxy" << std::endl;
-#endif
-
-        //create tunnel to destination
-        String hostname(temp);
-        hostname.removePTP();
-        int rc = sendProxyConnect(hostname, &ssl_sock, checkme);
-        if (rc < 0) {
-            return;
-        }
-#ifdef DGDEBUG
-        std::cout << dbgPeerPort << " -created tunnel through proxy with rc: " << rc << std::endl;
-#endif
-        //start an ssl client
-        std::string certpath(o.ssl_certificate_path.c_str());
-        if (ssl_sock.startSslClient(certpath,hostname) < 0) {
-            (*checkme).whatIsNaughty = "Could not open ssl connection";
-            (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty;
-            (*checkme).isItNaughty = true;
-            (*checkme).whatIsNaughtyCategories = "SSL Site";
-#ifdef DGDEBUG
-            syslog(LOG_ERR, "error opening ssl connection\n");
-            std::cout << dbgPeerPort << " -couldnt connect ssl server to check certificate. failed with error " << strerror(errno) << std::endl;
-#endif
-            return;
-        }
-        checkCertificate(hostname, &ssl_sock, checkme);
-
-#ifdef DGDEBUG
-        std::cout << dbgPeerPort << " -done checking SSL certificate" << std::endl;
-#endif
-    }
-#endif //__SSLMITM
 }
 
 // check the request header is OK (client host/user/IP allowed to browse, site not banned, upload not too big)
 void ConnectionHandler::requestLocalChecks(HTTPHeader *header, NaughtyFilter *checkme, String *urld, String *url,
-    std::string *clientip, std::string *clientuser, int filtergroup,
-    bool &isbanneduser, bool &isbannedip, std::string &room)
+        std::string *clientip, std::string *clientuser, int filtergroup,
+        bool &isbanneduser, bool &isbannedip, std::string &room)
 {
 
-    if (isbannedip) {
+    if (isbannedip)    {
         (*checkme).isItNaughty = true;
         (*checkme).whatIsNaughtyLog = o.language_list.getTranslation(100);
         (*checkme).message_no = 100;
@@ -3326,13 +3397,14 @@ void ConnectionHandler::requestLocalChecks(HTTPHeader *header, NaughtyFilter *ch
         // Your IP address is not allowed to web browse.
         if (room.empty())
             (*checkme).whatIsNaughtyCategories = "Banned Client IP";
-        else {
+        else        {
             checkme->whatIsNaughtyCategories = "Banned Room";
             checkme->whatIsNaughtyLog.append(" in ");
             checkme->whatIsNaughtyLog.append(room);
         }
         return;
-    } else if (isbanneduser) {
+    }
+    else if (isbanneduser)    {
         (*checkme).isItNaughty = true;
         (*checkme).whatIsNaughtyLog = o.language_list.getTranslation(102);
         (*checkme).message_no = 102;
@@ -3352,18 +3424,18 @@ void ConnectionHandler::requestLocalChecks(HTTPHeader *header, NaughtyFilter *ch
 
     // search term blocking - MOVED to after Banned checks
 
-    if (!(*checkme).isGrey
-        && ((*o.fg[filtergroup]).inLocalGreySiteList(temp, true, is_ip, is_ssl) || (*o.fg[filtergroup]).inLocalGreyURLList(temp, true, is_ip, is_ssl))) {
+
+    if ( !(*checkme).isGrey
+            && ( (*o.fg[filtergroup]).inLocalGreySiteList(temp, true, is_ip, is_ssl) || (*o.fg[filtergroup]).inLocalGreyURLList(temp, true, is_ip, is_ssl)))    {
         (*checkme).isGrey = true;
-        if (is_ssl)
-            (*checkme).isSSLGrey = true;
+        if (is_ssl) (*checkme).isSSLGrey = true;
     }
 
     // only apply bans to things not in the grey lists
-    if (!(*checkme).isGrey) {
-        if ((i = (*o.fg[filtergroup]).inLocalBannedSiteList(temp, true, is_ip, is_ssl)) != NULL) {
+    if ( !(*checkme).isGrey)    {
+        if ((i = (*o.fg[filtergroup]).inLocalBannedSiteList(temp, true, is_ip, is_ssl)) != NULL)        {
             // need to reintroduce ability to produce the blanket block messages
-            (*checkme).whatIsNaughty = o.language_list.getTranslation(560); // banned site
+            (*checkme).whatIsNaughty = o.language_list.getTranslation(560);  // banned site
             (*checkme).message_no = 560;
             (*checkme).whatIsNaughty += i;
             (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty;
@@ -3371,7 +3443,7 @@ void ConnectionHandler::requestLocalChecks(HTTPHeader *header, NaughtyFilter *ch
             (*checkme).whatIsNaughtyCategories = (*o.lm.l[(*o.fg[filtergroup]).banned_site_list]).lastcategory.toCharArray();
             return;
         }
-        if ((i = (*o.fg[filtergroup]).inLocalBannedURLList(temp, true, is_ip, is_ssl)) != NULL) {
+        if ((i = (*o.fg[filtergroup]).inLocalBannedURLList(temp, true, is_ip, is_ssl)) != NULL)        {
             (*checkme).whatIsNaughty = o.language_list.getTranslation(561);
             (*checkme).message_no = 561;
             // Banned URL:
@@ -3384,6 +3456,7 @@ void ConnectionHandler::requestLocalChecks(HTTPHeader *header, NaughtyFilter *ch
 
         // look for URLs within URLs - ban, for example, images originating from banned sites during a Google image search.
         // done in main requestChecks
+
     }
 
     // if we get here it's to be content checked (so far!)
@@ -3391,13 +3464,14 @@ void ConnectionHandler::requestLocalChecks(HTTPHeader *header, NaughtyFilter *ch
 
     // NOTE dg/protex search term stuff needs combining!!!!
 
+
     // search term blocking - apply even to things in grey lists, as it's a form of content filtering
     // don't bother with SSL sites, though.  note that we must pass in the non-hex-decoded URL in
     // order for regexes to be able to split up parameters reliably.
-    if (!is_ssl) {
+    if (!is_ssl)    {
         (*checkme).isSearch = (*header).isSearch(filtergroup);
-        if ((*checkme).isSearch) {
-            if ((i = (*o.fg[filtergroup]).inLocalBannedSearchList((*header).searchwords())) != NULL) {
+        if ((*checkme).isSearch)        {
+            if ((i = (*o.fg[filtergroup]).inLocalBannedSearchList((*header).searchwords())) != NULL)            {
                 (*checkme).whatIsNaughty = o.language_list.getTranslation(581);
                 (*checkme).message_no = 581;
                 // Banned search term:
@@ -3409,23 +3483,24 @@ void ConnectionHandler::requestLocalChecks(HTTPHeader *header, NaughtyFilter *ch
             }
         }
 
-        // dg code
+// dg code
         String terms;
-        if ((*checkme).isSearch) {
+        if ((*checkme).isSearch)        {
             terms = (*header).searchterms();
             // search terms are URL parameter type "0"
             urlparams.append("0=").append(terms).append(";");
-            if (o.fg[filtergroup]->searchterm_limit > 0) {
+            if (o.fg[filtergroup]->searchterm_limit > 0)            {
                 // Add spaces at beginning and end of block before filtering, so
                 // that the quick & dirty trick of putting spaces around words
                 // (Scunthorpe problem) can still be used, bearing in mind the block
                 // of text here is usually very small.
-                terms.insert(terms.begin(), ' ');
+                terms.insert(terms.begin(),' ');
                 terms.append(" ");
                 checkme->checkme(terms.c_str(), terms.length(), NULL, NULL, filtergroup,
-                    (o.fg[filtergroup]->searchterm_flag ? o.fg[filtergroup]->searchterm_list : o.fg[filtergroup]->banned_phrase_list),
-                    o.fg[filtergroup]->searchterm_limit, true);
-                if (checkme->isItNaughty) {
+                                 (o.fg[filtergroup]->searchterm_flag ? o.fg[filtergroup]->searchterm_list : o.fg[filtergroup]->banned_phrase_list),
+                                 o.fg[filtergroup]->searchterm_limit, true);
+                if (checkme->isItNaughty)
+                {
                     checkme->blocktype = 2;
                     return;
                 }
@@ -3434,9 +3509,11 @@ void ConnectionHandler::requestLocalChecks(HTTPHeader *header, NaughtyFilter *ch
     }
 }
 
+
+
 // check if embeded url trusted referer
 bool ConnectionHandler::embededRefererChecks(HTTPHeader *header, String *urld, String *url,
-    int filtergroup)
+        int filtergroup)
 {
 
     char *i;
@@ -3445,28 +3522,29 @@ bool ConnectionHandler::embededRefererChecks(HTTPHeader *header, String *urld, S
     temp = (*urld);
     temp.hexDecode();
 
-    if (o.fg[filtergroup]->inRefererExceptionLists(header->getReferer())) {
+    if ( o.fg[filtergroup]->inRefererExceptionLists(header->getReferer()))    {
         return true;
     }
 #ifdef DGDEBUG
     std::cout << dbgPeerPort << " -checking for embed url in " << temp << std::endl;
 #endif
 
-    if (o.fg[filtergroup]->inEmbededRefererLists(temp)) {
+    if ( o.fg[filtergroup]->inEmbededRefererLists(temp))    {
 
-// look for referer URLs within URLs
+        // look for referer URLs within URLs
 #ifdef DGDEBUG
         std::cout << dbgPeerPort << " -starting embeded referer deep analysis" << std::endl;
 #endif
         String deepurl(temp.after("p://"));
-        deepurl = header->decode(deepurl, true);
-        while (deepurl.contains(":")) {
+        deepurl = header->decode(deepurl,true);
+        while (deepurl.contains(":"))        {
             deepurl = deepurl.after(":");
-            while (deepurl.startsWith(":") || deepurl.startsWith("/")) {
+            while (deepurl.startsWith(":") || deepurl.startsWith("/"))            {
                 deepurl.lop();
             }
 
-            if (o.fg[filtergroup]->inRefererExceptionLists(deepurl)) {
+            if (o.fg[filtergroup]->inRefererExceptionLists(deepurl))
+            {
 #ifdef DGDEBUG
                 std::cout << "deep site found in trusted referer list; " << std::endl;
 #endif
@@ -3482,9 +3560,9 @@ bool ConnectionHandler::embededRefererChecks(HTTPHeader *header, String *urld, S
 
 // based on patch by Aecio F. Neto (afn@harvest.com.br) - Harvest Consultoria (http://www.harvest.com.br)
 // show the relevant banned page/image/CGI based on report level setting, request type etc.
-bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHeader *header, HTTPHeader *docheader,
-    String *url, NaughtyFilter *checkme, std::string *clientuser, std::string *clientip, int filtergroup,
-    bool ispostblock, int headersent, bool wasinfected, bool scanerror, bool forceshow)
+bool ConnectionHandler::denyAccess(Socket * peerconn, Socket * proxysock, HTTPHeader * header, HTTPHeader * docheader,
+                                   String * url, NaughtyFilter * checkme, std::string * clientuser, std::string * clientip, int filtergroup,
+                                   bool ispostblock, int headersent, bool wasinfected, bool scanerror, bool forceshow)
 {
     int reporting_level = o.fg[filtergroup]->reporting_level;
 #ifdef DGDEBUG
@@ -3493,7 +3571,8 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
 
 #endif
 
-    try { // writestring throws exception on error/timeout
+    try    // writestring throws exception on error/timeout
+    {
 
         // flags to enable filter/infection bypass hash generation
         bool filterhash = false;
@@ -3502,9 +3581,9 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
         // (if disabled, just output '1' or '2' to show that the CGI should generate a filter/virus bypass hash;
         // otherwise, real hashes get put into substitution variables/appended to the ban CGI redirect URL)
         bool dohash = false;
-        if (reporting_level > 0) {
+        if (reporting_level > 0)        {
             // generate a filter bypass hash
-            if (!wasinfected && ((*o.fg[filtergroup]).bypass_mode != 0) && !ispostblock) {
+            if (!wasinfected && ((*o.fg[filtergroup]).bypass_mode != 0) && !ispostblock)            {
 #ifdef DGDEBUG
                 std::cout << dbgPeerPort << " -Enabling filter bypass hash generation" << std::endl;
 #endif
@@ -3513,9 +3592,9 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
                     dohash = true;
             }
             // generate an infection bypass hash
-            else if (wasinfected && (*o.fg[filtergroup]).infection_bypass_mode != 0) {
+            else if (wasinfected && (*o.fg[filtergroup]).infection_bypass_mode != 0)            {
                 // only generate if scanerror (if option to only bypass scan errors is enabled)
-                if ((*o.fg[filtergroup]).infection_bypass_errors_only ? scanerror : true) {
+                if ((*o.fg[filtergroup]).infection_bypass_errors_only ? scanerror : true)                {
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -Enabling infection bypass hash generation" << std::endl;
 #endif
@@ -3526,23 +3605,15 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
             }
         }
 
-// the user is using the full whack of custom banned images and/or HTML templates
-#ifdef __SSLMITM
-        if (reporting_level == 3 || (headersent > 0 && reporting_level > 0) || forceshow) {
-#else
-        if (reporting_level == 3 || (headersent > 0 && reporting_level > 0)) {
-#endif
+        // the user is using the full whack of custom banned images and/or HTML templates
+        if (reporting_level == 3 || (headersent > 0 && reporting_level > 0))        {
             // if reporting_level = 1 or 2 and headersent then we can't
             // send a redirect so we have to display the template instead
 
-            (*proxysock).close(); // finished with proxy
+            (*proxysock).close();  // finished with proxy
             (*peerconn).readyForOutput(o.proxy_timeout);
 
-#ifdef __SSLMITM
-            if ((*header).requestType().startsWith("CONNECT") && !(*peerconn).isSsl()) {
-#else
-            if ((*header).requestType().startsWith("CONNECT")) {
-#endif
+            if ((*header).requestType().startsWith("CONNECT"))            {
                 // if it's a CONNECT then headersent can't be set
                 // so we don't need to worry about it
 
@@ -3560,47 +3631,48 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
                 // 307 redirection Fix the problem for Firefox - only ? -
                 // TODO: I guess the right thing to do should be a - SSL - DENIED Webpage 307 redirect and direct"
 
-                if (o.fg[filtergroup]->sslaccess_denied_address.length() != 0) {
+                if (o.fg[filtergroup]->sslaccess_denied_address.length() != 0)                {
                     // grab either the full category list or the thresholded list
                     std::string cats;
                     cats = checkme->usedisplaycats ? checkme->whatIsNaughtyDisplayCategories : checkme->whatIsNaughtyCategories;
                     String hashed;
                     // generate valid hash locally if enabled
-                    if (dohash) {
+                    if (dohash)                    {
                         hashed = hashedURL(url, filtergroup, clientip, virushash);
                     }
                     // otherwise, just generate flags showing what to generate
-                    else if (filterhash) {
+                    else if (filterhash)                    {
                         hashed = "1";
-                    } else if (virushash) {
+                    }
+                    else if (virushash)                    {
                         hashed = "2";
                     }
 
                     String writestring("HTTP/1.1 307 Temporary Redirect\n");
                     writestring += "Location: ";
-                    writestring += o.fg[filtergroup]->sslaccess_denied_address; // banned site for ssl
-                    if (o.fg[filtergroup]->non_standard_delimiter) {
+                    writestring +=  o.fg[filtergroup]->sslaccess_denied_address;  // banned site for ssl
+                    if (o.fg[filtergroup]->non_standard_delimiter)                    {
                         writestring += "?DENIEDURL==";
                         writestring += miniURLEncode((*url).toCharArray()).c_str();
                         writestring += "::IP==";
                         writestring += (*clientip).c_str();
                         writestring += "::USER==";
                         writestring += (*clientuser).c_str();
-                        if (clienthost != NULL) {
+                        if (clienthost != NULL)                        {
                             writestring += "::HOST==";
                             writestring += clienthost->c_str();
                         }
                         writestring += "::CATEGORIES==";
                         writestring += miniURLEncode(cats.c_str()).c_str();
                         writestring += "::REASON==";
-                    } else {
+                    }                    else                    {
                         writestring += "?DENIEDURL=";
                         writestring += miniURLEncode((*url).toCharArray()).c_str();
                         writestring += "&IP=";
                         writestring += (*clientip).c_str();
                         writestring += "&USER=";
                         writestring += (*clientuser).c_str();
-                        if (clienthost != NULL) {
+                        if (clienthost != NULL)                        {
                             writestring += "&HOST=";
                             writestring += clienthost->c_str();
                         }
@@ -3609,46 +3681,50 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
                         writestring += "&REASON=";
                     }
 
-                    if (reporting_level == 1) {
+                    if (reporting_level == 1)                    {
                         writestring += miniURLEncode((*checkme).whatIsNaughty.c_str()).c_str();
-                    } else {
+                    }                    else                    {
                         writestring += miniURLEncode((*checkme).whatIsNaughtyLog.c_str()).c_str();
                     }
                     writestring += "\nContent-Length: 0";
                     writestring += "\nCache-control: no-cache";
                     writestring += "\nConnection: close\n";
-                    try { // writestring throws exception on error/timeout
+                    try   // writestring throws exception on error/timeout
+                    {
                         (*peerconn).writeString(writestring.toCharArray());
-                    } catch (std::exception &e) {
                     }
-#ifdef DGDEBUG // debug stuff surprisingly enough
+                    catch (std::exception & e)                    {
+                    }
+#ifdef DGDEBUG			// debug stuff surprisingly enough
                     std::cout << dbgPeerPort << " -******* redirecting to:" << std::endl;
                     std::cout << dbgPeerPort << writestring << std::endl;
                     std::cout << dbgPeerPort << " -*******" << std::endl;
 #endif
-                } else {
+                }                else                {
                     // Broken, sadly blank page for user
                     // See comment above HTTPS
                     String writestring("HTTP/1.0 403 ");
-                    writestring += o.language_list.getTranslation(500); // banned site
+                    writestring += o.language_list.getTranslation(500);  // banned site
                     writestring += "\nContent-Type: text/html\n\n<HTML><HEAD><TITLE>e2guardian - ";
-                    writestring += o.language_list.getTranslation(500); // banned site
+                    writestring += o.language_list.getTranslation(500);  // banned site
                     writestring += "</TITLE></HEAD><BODY><H1>e2guardian - ";
-                    writestring += o.language_list.getTranslation(500); // banned site
+                    writestring += o.language_list.getTranslation(500);  // banned site
                     writestring += "</H1>";
                     writestring += (*url);
                     writestring += "</BODY></HTML>\n";
-                    try { // writestring throws exception on error/timeout
+                    try     // writestring throws exception on error/timeout
+                    {
                         (*peerconn).writeString(writestring.toCharArray());
-                    } catch (std::exception &e) {
+                    }
+                    catch (std::exception & e)                    {
                     }
                 }
 
-            } else {
+            }            else            {
                 // we're dealing with a non-SSL'ed request, and have the option of using the custom banned image/page directly
                 bool replaceimage = false;
                 bool replaceflash = false;
-                if (o.use_custom_banned_image) {
+                if (o.use_custom_banned_image)                {
 
                     // It would be much nicer to do a mime comparison
                     // and see if the type is image/* but the header
@@ -3660,37 +3736,41 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
                     String lurl((*url));
                     lurl.toLower();
                     if (lurl.endsWith(".gif") || lurl.endsWith(".jpg") || lurl.endsWith(".jpeg") || lurl.endsWith(".jpe")
-                        || lurl.endsWith(".png") || lurl.endsWith(".bmp") || (*docheader).isContentType("image/",filtergroup)) {
+                            || lurl.endsWith(".png") || lurl.endsWith(".bmp") || (*docheader).isContentType("image/"))
+                    {
                         replaceimage = true;
                     }
                 }
 
-                if (o.use_custom_banned_flash) {
+                if (o.use_custom_banned_flash)                {
                     String lurl((*url));
                     lurl.toLower();
-                    if (lurl.endsWith(".swf") || (*docheader).isContentType("application/x-shockwave-flash",filtergroup)) {
+                    if (lurl.endsWith(".swf") || (*docheader).isContentType("application/x-shockwave-flash"))
+                    {
                         replaceflash = true;
                     }
                 }
 
                 // if we're denying an image request, show the image; otherwise, show the HTML page.
                 // (or advanced ad block page, or HTML page with bypass URLs)
-                if (replaceimage) {
-                    if (headersent == 0) {
+                if (replaceimage)                {
+                    if (headersent == 0)                    {
                         (*peerconn).writeString("HTTP/1.0 200 OK\n");
                     }
                     o.banned_image.display(peerconn);
-                } else if (replaceflash) {
-                    if (headersent == 0) {
+                }
+                else if (replaceflash)
+                {
+                    if (headersent == 0)                    {
                         (*peerconn).writeString("HTTP/1.0 200 OK\n");
                     }
                     o.banned_flash.display(peerconn);
-                } else {
+                }                else                {
                     // advanced ad blocking - if category contains ADs, wrap ad up in an "ad blocked" message,
                     // which provides a link to the original URL if you really want it. primarily
                     // for IFRAMEs, which will end up containing this link instead of the ad (standard non-IFRAMEd
                     // ad images still get image-replaced.)
-                    if (strstr(checkme->whatIsNaughtyCategories.c_str(), "ADs") != NULL) {
+                    if (strstr(checkme->whatIsNaughtyCategories.c_str(), "ADs") != NULL)                    {
                         String writestring("HTTP/1.0 200 ");
                         writestring += o.language_list.getTranslation(1101); // advert blocked
                         writestring += "\nContent-Type: text/html\n\n<HTML><HEAD><TITLE>Guardian - ";
@@ -3700,32 +3780,33 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
                         writestring += "\" TARGET=\"_BLANK\">";
                         writestring += o.language_list.getTranslation(1101); // advert blocked
                         writestring += "</A></FONT></CENTER></BODY></HTML>\n";
-                        try { // writestring throws exception on error/timeout
+                        try   // writestring throws exception on error/timeout
+                        {
                             (*peerconn).writeString(writestring.toCharArray());
-                        } catch (std::exception &e) {
-                        }
+                        }                        catch (std::exception& e) {}
                     }
 
                     // Mod by Ernest W Lessenger Mon 2nd February 2004
                     // Other bypass code mostly written by Ernest also
                     // create temporary bypass URL to show on denied page
-                    else {
+                    else                    {
                         String hashed;
                         // generate valid hash locally if enabled
-                        if (dohash) {
+                        if (dohash)                        {
                             hashed = hashedURL(url, filtergroup, clientip, virushash);
                         }
                         // otherwise, just generate flags showing what to generate
-                        else if (filterhash) {
+                        else if (filterhash)                        {
                             hashed = "HASH=1";
-                        } else if (virushash) {
+                        }
+                        else if (virushash)                        {
                             hashed = "HASH=2";
                         }
 
-                        if (headersent == 0) {
+                        if (headersent == 0)                        {
                             (*peerconn).writeString("HTTP/1.0 200 OK\n");
                         }
-                        if (headersent < 2) {
+                        if (headersent < 2)                        {
                             (*peerconn).writeString("Content-type: text/html\n\n");
                         }
                         // if the header has been sent then likely displaying the
@@ -3735,104 +3816,105 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
                         // broken we don't mind too much
                         String fullurl = header->getLogUrl(true);
                         o.fg[filtergroup]->getHTMLTemplate()->display(peerconn,
-                            &fullurl, (*checkme).whatIsNaughty, (*checkme).whatIsNaughtyLog,
-                            // grab either the full category list or the thresholded list
-                            (checkme->usedisplaycats ? checkme->whatIsNaughtyDisplayCategories : checkme->whatIsNaughtyCategories),
-                            clientuser, clientip, clienthost, filtergroup, hashed);
+                                &fullurl, (*checkme).whatIsNaughty, (*checkme).whatIsNaughtyLog,
+                                // grab either the full category list or the thresholded list
+                                (checkme->usedisplaycats ? checkme->whatIsNaughtyDisplayCategories : checkme->whatIsNaughtyCategories),
+                                clientuser, clientip, clienthost, filtergroup, hashed);
                     }
                 }
             }
         }
 
         // the user is using the CGI rather than the HTML template - so issue a redirect with parameters filled in on GET string
-        else if (reporting_level > 0) {
+        else if (reporting_level > 0)        {
             // grab either the full category list or the thresholded list
             std::string cats;
             cats = checkme->usedisplaycats ? checkme->whatIsNaughtyDisplayCategories : checkme->whatIsNaughtyCategories;
 
             String hashed;
             // generate valid hash locally if enabled
-            if (dohash) {
+            if (dohash)            {
                 hashed = hashedURL(url, filtergroup, clientip, virushash);
             }
             // otherwise, just generate flags showing what to generate
-            else if (filterhash) {
+            else if (filterhash)            {
                 hashed = "1";
-            } else if (virushash) {
+            }
+            else if (virushash)            {
                 hashed = "2";
             }
 
-            (*proxysock).close(); // finshed with proxy
+            (*proxysock).close();  // finshed with proxy
             (*peerconn).readyForOutput(o.proxy_timeout);
-            if ((*checkme).whatIsNaughty.length() > 2048) {
+            if ((*checkme).whatIsNaughty.length() > 2048)            {
                 (*checkme).whatIsNaughty = String((*checkme).whatIsNaughty.c_str()).subString(0, 2048).toCharArray();
             }
-            if ((*checkme).whatIsNaughtyLog.length() > 2048) {
+            if ((*checkme).whatIsNaughtyLog.length() > 2048)            {
                 (*checkme).whatIsNaughtyLog = String((*checkme).whatIsNaughtyLog.c_str()).subString(0, 2048).toCharArray();
             }
             String writestring("HTTP/1.0 302 Redirect\n");
             writestring += "Location: ";
             writestring += o.fg[filtergroup]->access_denied_address;
 
-            if (o.fg[filtergroup]->non_standard_delimiter) {
+            if (o.fg[filtergroup]->non_standard_delimiter)            {
                 writestring += "?DENIEDURL==";
                 writestring += miniURLEncode((*url).toCharArray()).c_str();
                 writestring += "::IP==";
                 writestring += (*clientip).c_str();
                 writestring += "::USER==";
                 writestring += (*clientuser).c_str();
-                if (clienthost != NULL) {
+                if (clienthost != NULL)                {
                     writestring += "::HOST==";
                     writestring += clienthost->c_str();
                 }
                 writestring += "::CATEGORIES==";
                 writestring += miniURLEncode(cats.c_str()).c_str();
-                if (virushash || filterhash) {
+                if (virushash || filterhash)                {
                     // output either a genuine hash, or just flags
-                    if (dohash) {
+                    if (dohash)                    {
                         writestring += "::";
                         writestring += hashed.before("=").toCharArray();
                         writestring += "==";
                         writestring += hashed.after("=").toCharArray();
-                    } else {
+                    }                    else                    {
                         writestring += "::HASH==";
                         writestring += hashed.toCharArray();
                     }
                 }
                 writestring += "::REASON==";
-            } else {
+            }            else            {
                 writestring += "?DENIEDURL=";
                 writestring += miniURLEncode((*url).toCharArray()).c_str();
                 writestring += "&IP=";
                 writestring += (*clientip).c_str();
                 writestring += "&USER=";
                 writestring += (*clientuser).c_str();
-                if (clienthost != NULL) {
+                if (clienthost != NULL)                {
                     writestring += "&HOST=";
                     writestring += clienthost->c_str();
                 }
                 writestring += "&CATEGORIES=";
                 writestring += miniURLEncode(cats.c_str()).c_str();
-                if (virushash || filterhash) {
+                if (virushash || filterhash)                {
                     // output either a genuine hash, or just flags
-                    if (dohash) {
+                    if (dohash)                    {
                         writestring += "&";
                         writestring += hashed.toCharArray();
-                    } else {
+                    }                    else                    {
                         writestring += "&HASH=";
                         writestring += hashed.toCharArray();
                     }
                 }
                 writestring += "&REASON=";
             }
-            if (reporting_level == 1) {
+            if (reporting_level == 1)            {
                 writestring += miniURLEncode((*checkme).whatIsNaughty.c_str()).c_str();
-            } else {
+            }            else            {
                 writestring += miniURLEncode((*checkme).whatIsNaughtyLog.c_str()).c_str();
             }
             writestring += "\n\n";
             (*peerconn).writeString(writestring.toCharArray());
-#ifdef DGDEBUG // debug stuff surprisingly enough
+#ifdef DGDEBUG			// debug stuff surprisingly enough
             std::cout << dbgPeerPort << " -******* redirecting to:" << std::endl;
             std::cout << dbgPeerPort << writestring << std::endl;
             std::cout << dbgPeerPort << " -*******" << std::endl;
@@ -3840,18 +3922,18 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
         }
 
         // the user is using the barebones banned page
-        else if (reporting_level == 0) {
-            (*proxysock).close(); // finshed with proxy
+        else if (reporting_level == 0)        {
+            (*proxysock).close();  // finshed with proxy
             String writestring("HTTP/1.0 200 OK\n");
             writestring += "Content-type: text/html\n\n";
             writestring += "<HTML><HEAD><TITLE>e2guardian - ";
-            writestring += o.language_list.getTranslation(1); // access denied
+            writestring += o.language_list.getTranslation(1);  // access denied
             writestring += "</TITLE></HEAD><BODY><CENTER><H1>e2guardian - ";
-            writestring += o.language_list.getTranslation(1); // access denied
+            writestring += o.language_list.getTranslation(1);  // access denied
             writestring += "</H1></CENTER></BODY></HTML>";
             (*peerconn).readyForOutput(o.proxy_timeout);
             (*peerconn).writeString(writestring.toCharArray());
-#ifdef DGDEBUG // debug stuff surprisingly enough
+#ifdef DGDEBUG			// debug stuff surprisingly enough
             std::cout << dbgPeerPort << " -******* displaying:" << std::endl;
             std::cout << dbgPeerPort << writestring << std::endl;
             std::cout << dbgPeerPort << " -*******" << std::endl;
@@ -3859,19 +3941,21 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
         }
 
         // stealth mode
-        else if (reporting_level == -1) {
-            (*checkme).isItNaughty = false; // dont block
+        else if (reporting_level == -1)        {
+            (*checkme).isItNaughty = false;  // dont block
         }
-    } catch (std::exception &e) {
+    }
+    catch (std::exception & e)    {
     }
 
     // we blocked the request, so flush the client connection & close the proxy connection.
-    if ((*checkme).isItNaughty) {
-        try {
-            (*peerconn).readyForOutput(o.proxy_timeout); //as best a flush as I can
-        } catch (std::exception &e) {
+    if ((*checkme).isItNaughty)    {
+        try        {
+            (*peerconn).readyForOutput(o.proxy_timeout);  //as best a flush as I can
         }
-        (*proxysock).close(); // close connection to proxy
+        catch (std::exception & e)        {
+        }
+        (*proxysock).close();  // close connection to proxy
         // we said no to the request, so return true, indicating exit the connhandler
         return true;
     }
@@ -3880,16 +3964,16 @@ bool ConnectionHandler::denyAccess(Socket *peerconn, Socket *proxysock, HTTPHead
 
 // do content scanning (AV filtering) and naughty filtering
 void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header, DataBuffer *docbody,
-    Socket *proxysock, Socket *peerconn, int *headersent, bool *pausedtoobig, off_t *docsize, NaughtyFilter *checkme,
-    bool wasclean, int filtergroup, std::deque<CSPlugin *> &responsescanners,
-    std::string *clientuser, std::string *clientip, bool *wasinfected, bool *wasscanned, bool isbypass,
-    String &url, String &domain, bool *scanerror, bool &contentmodified, String *csmessage)
+                                      Socket *proxysock, Socket *peerconn, int *headersent, bool *pausedtoobig, off_t *docsize, NaughtyFilter *checkme,
+                                      bool wasclean, int filtergroup, std::deque<CSPlugin *> &responsescanners,
+                                      std::string *clientuser, std::string *clientip, bool *wasinfected, bool *wasscanned, bool isbypass,
+                                      String &url, String &domain, bool *scanerror, bool &contentmodified, String *csmessage)
 {
     int rc = 0;
 
     proxysock->checkForInput(120);
     bool compressed = docheader->isCompressed();
-    if (compressed) {
+    if (compressed)    {
 #ifdef DGDEBUG
         std::cout << dbgPeerPort << " -Decompressing as we go....." << std::endl;
 #endif
@@ -3899,30 +3983,30 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
     std::cout << dbgPeerPort << docheader->contentEncoding() << std::endl;
     std::cout << dbgPeerPort << " -about to get body from proxy" << std::endl;
 #endif
-    (*pausedtoobig) = docbody->in(proxysock, peerconn, header, docheader, !responsescanners.empty(), headersent); // get body from proxy
-// checkme: surely if pausedtoobig is true, we just want to break here?
-// the content is larger than max_content_filecache_scan_size if it was downloaded for scanning,
-// and larger than max_content_filter_size if not.
-// in fact, why don't we check the content length (when it's not -1) before even triggering the download managers?
+    (*pausedtoobig) = docbody->in(proxysock, peerconn, header, docheader, !responsescanners.empty(), headersent);  // get body from proxy
+    // checkme: surely if pausedtoobig is true, we just want to break here?
+    // the content is larger than max_content_filecache_scan_size if it was downloaded for scanning,
+    // and larger than max_content_filter_size if not.
+    // in fact, why don't we check the content length (when it's not -1) before even triggering the download managers?
 #ifdef DGDEBUG
-    if ((*pausedtoobig)) {
+    if ((*pausedtoobig))    {
         std::cout << dbgPeerPort << " -got PARTIAL body from proxy" << std::endl;
-    } else {
+    }    else    {
         std::cout << dbgPeerPort << " -got body from proxy" << std::endl;
     }
 #endif
     off_t dblen;
     bool isfile = false;
-    if (docbody->tempfilesize > 0) {
+    if (docbody->tempfilesize > 0)    {
         dblen = docbody->tempfilesize;
         isfile = true;
-    } else {
+    }    else    {
         dblen = docbody->buffer_length;
     }
     // don't scan zero-length buffers (waste of AV resources, especially with external scanners (ICAP)).
     // these were encountered browsing opengroup.org, caused by a stats script. (PRA 21/09/2005)
     // if we wanted to honour a hypothetical min_content_scan_size, we'd do it here.
-    if (((*docsize) = dblen) == 0) {
+    if (((*docsize) = dblen) == 0)    {
 #ifdef DGDEBUG
         std::cout << dbgPeerPort << " -Not scanning zero-length body" << std::endl;
 #endif
@@ -3933,26 +4017,28 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
         return;
     }
 
-    if (!wasclean) { // was not clean or no urlcache
+    if (!wasclean)  	// was not clean or no urlcache
+    {
 
         // fixed to obey maxcontentramcachescansize
-        if (!responsescanners.empty() && (isfile ? dblen <= o.max_content_filecache_scan_size : dblen <= o.max_content_ramcache_scan_size)) {
+        if (!responsescanners.empty() && (isfile ? dblen <= o.max_content_filecache_scan_size : dblen <= o.max_content_ramcache_scan_size))
+        {
             int csrc = 0;
 #ifdef DGDEBUG
             int k = 0;
 #endif
-            for (std::deque<CSPlugin *>::iterator i = responsescanners.begin(); i != responsescanners.end(); i++) {
+            for (std::deque<CSPlugin *>::iterator i = responsescanners.begin(); i != responsescanners.end(); i++)            {
                 (*wasscanned) = true;
-                if (isfile) {
+                if (isfile)                {
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -Running scanFile" << std::endl;
 #endif
                     csrc = (*i)->scanFile(header, docheader, clientuser->c_str(), filtergroup, clientip->c_str(), docbody->tempfilepath.toCharArray(), checkme);
-                    if ((csrc != DGCS_CLEAN) && (csrc != DGCS_WARNING)) {
+                    if ((csrc != DGCS_CLEAN) && (csrc != DGCS_WARNING))                    {
                         unlink(docbody->tempfilepath.toCharArray());
                         // delete infected (or unscanned due to error) file straight away
                     }
-                } else {
+                }                else                {
 #ifdef DGDEBUG
                     std::cout << dbgPeerPort << " -Running scanMemory" << std::endl;
 #endif
@@ -3961,7 +4047,7 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
 #ifdef DGDEBUG
                 std::cerr << dbgPeerPort << " -AV scan " << k << " returned: " << csrc << std::endl;
 #endif
-                if (csrc == DGCS_WARNING) {
+                if (csrc == DGCS_WARNING)                {
                     // Scanner returned a warning. File wasn't infected, but wasn't scanned properly, either.
                     (*wasscanned) = false;
                     (*scanerror) = false;
@@ -3969,20 +4055,23 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
                     std::cout << dbgPeerPort << (*i)->getLastMessage() << std::endl;
 #endif
                     (*csmessage) = (*i)->getLastMessage();
-                } else if (csrc == DGCS_BLOCKED) {
+                }
+                else if (csrc == DGCS_BLOCKED)                {
                     (*wasscanned) = true;
                     (*scanerror) = false;
                     break;
-                } else if (csrc == DGCS_INFECTED) {
+                }
+                else if (csrc == DGCS_INFECTED)                {
                     (*wasinfected) = true;
                     (*scanerror) = false;
                     break;
                 }
                 //if its not clean / we errored then treat it as infected
-                else if (csrc != DGCS_CLEAN) {
-                    if (csrc < 0) {
+                else if (csrc != DGCS_CLEAN)                {
+                    if (csrc < 0)                    {
                         syslog(LOG_ERR, "Unknown return code from content scanner: %d", csrc);
-                    } else {
+                    }
+                    else                    {
                         syslog(LOG_ERR, "scanFile/Memory returned error: %d", csrc);
                     }
                     //TODO: have proper error checking/reporting here?
@@ -4009,18 +4098,19 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
 #endif
         }
 #ifdef DGDEBUG
-        else if (!responsescanners.empty()) {
+        else if (!responsescanners.empty())        {
             std::cout << dbgPeerPort << " -content length large so skipping content scanning (virus) filtering" << std::endl;
         }
         rc = system("date");
 #endif
         if (!checkme->isItNaughty && !checkme->isException && !isbypass && (dblen <= o.max_content_filter_size)
-            && !docheader->authRequired() && (docheader->isContentType("text",filtergroup) || docheader->isContentType("-",filtergroup))) {
+                && !docheader->authRequired() && (docheader->isContentType("text") || docheader->isContentType("-")))
+        {
             checkme->checkme(docbody->data, docbody->buffer_length, &url, &domain,
-                filtergroup, o.fg[filtergroup]->banned_phrase_list, o.fg[filtergroup]->naughtyness_limit);
+                             filtergroup, o.fg[filtergroup]->banned_phrase_list, o.fg[filtergroup]->naughtyness_limit);
         }
 #ifdef DGDEBUG
-        else {
+        else        {
             std::cout << dbgPeerPort << " -Skipping content filtering: ";
             if (dblen > o.max_content_filter_size)
                 std::cout << dbgPeerPort << " -Content too large";
@@ -4032,7 +4122,7 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
                 std::cout << dbgPeerPort << " -Is flagged as a bypass";
             else if (docheader->authRequired())
                 std::cout << dbgPeerPort << " -Is a set of auth required headers";
-            else if (!docheader->isContentType("text",filtergroup))
+            else if (!docheader->isContentType("text"))
                 std::cout << dbgPeerPort << " -Not text";
             std::cout << dbgPeerPort << std::endl;
         }
@@ -4040,22 +4130,22 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
     }
 
     // don't do phrase filtering or content replacement on exception/bypass accesses
-    if (checkme->isException || isbypass) {
+    if (checkme->isException || isbypass)    {
         // don't forget to swap back to compressed!
         docbody->swapbacktocompressed();
         return;
     }
 
-    if ((dblen <= o.max_content_filter_size) && !checkme->isItNaughty && docheader->isContentType("text",filtergroup)) {
+    if ((dblen <= o.max_content_filter_size) && !checkme->isItNaughty && docheader->isContentType("text"))    {
         contentmodified = docbody->contentRegExp(filtergroup);
         // content modifying uses global variable
     }
 #ifdef DGDEBUG
-    else {
+    else    {
         std::cout << dbgPeerPort << " -Skipping content modification: ";
         if (dblen > o.max_content_filter_size)
             std::cout << dbgPeerPort << " -Content too large";
-        else if (!docheader->isContentType("text",filtergroup))
+        else if (!docheader->isContentType("text"))
             std::cout << dbgPeerPort << " -Not text";
         else if (checkme->isItNaughty)
             std::cout << dbgPeerPort << " -Already flagged as naughty";
@@ -4064,20 +4154,21 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
     rc = system("date");
 #endif
 
-    if (contentmodified) { // this would not include infected/cured files
-// if the content was modified then it must have fit in ram so no
-// need to worry about swapped to disk stuff
+    if (contentmodified)  	// this would not include infected/cured files
+    {
+        // if the content was modified then it must have fit in ram so no
+        // need to worry about swapped to disk stuff
 #ifdef DGDEBUG
         std::cout << dbgPeerPort << " -content modification made" << std::endl;
 #endif
-        if (compressed) {
+        if (compressed)        {
             docheader->removeEncoding(docbody->buffer_length);
             // need to modify header to mark as not compressed
             // it also modifies Content-Length as well
-        } else {
+        }        else        {
             docheader->setContentLength(docbody->buffer_length);
         }
-    } else {
+    }    else    {
         docbody->swapbacktocompressed();
         // if we've not modified it might as well go back to
         // the original compressed version (if there) and send
@@ -4085,109 +4176,4 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
     }
 }
 
-#ifdef __SSLMITM
-int ConnectionHandler::sendProxyConnect(String &hostname, Socket *sock, NaughtyFilter *checkme)
-{
-    String connect_request = "CONNECT " + hostname + ":";
-    connect_request += "443 HTTP/1.0\r\n\r\n";
 
-#ifdef DGDEBUG
-    std::cout << dbgPeerPort << " -creating tunnel through proxy to " << hostname << std::endl;
-#endif
-
-    //somewhere to hold the header from the proxy
-    HTTPHeader header;
-    header.setTimeout(o.pcon_timeout);
-
-    try {
-        sock->writeString(connect_request.c_str());
-        header.in(sock, true, true);
-    } catch (std::exception &e) {
-
-#ifdef DGDEBUG
-        syslog(LOG_ERR, "Error creating tunnel through proxy\n");
-        std::cout << dbgPeerPort << " -Error creating tunnel through proxy" << strerror(errno) << std::endl;
-#endif
-        //(*checkme).whatIsNaughty = "Unable to create tunnel through local proxy";
-        checkme->message_no = 157;
-        (*checkme).whatIsNaughty = o.language_list.getTranslation(157);
-        (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty;
-        (*checkme).isItNaughty = true;
-        (*checkme).whatIsNaughtyCategories = o.language_list.getTranslation(70);
-
-        return -1;
-    }
-    //do http connect
-    if (header.returnCode() != 200) {
-        //connection failed
-        //(*checkme).whatIsNaughty = "Opening tunnel failed";
-        checkme->message_no = 158;
-        (*checkme).whatIsNaughty = o.language_list.getTranslation(158);
-        (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty + " with errror code " + String(header.returnCode());
-        (*checkme).isItNaughty = true;
-        (*checkme).whatIsNaughtyCategories = o.language_list.getTranslation(70);
-
-#ifdef DGDEBUG
-        syslog(LOG_ERR, "Tunnel status not 200 ok aborting\n");
-        std::cout << dbgPeerPort << " -Tunnel status was " << header.returnCode() << " expecting 200 ok" << std::endl;
-#endif
-
-        return -1;
-    }
-
-    return 0;
-}
-
-void ConnectionHandler::checkCertificate(String &hostname, Socket *sslsock, NaughtyFilter *checkme)
-{
-
-//#ifdef DGDEBUG
-//	std::cout << dbgPeerPort << " -skipping SSL certificate check" << std::endl;
-//#endif
-//	return;
-
-#ifdef DGDEBUG
-    std::cout << dbgPeerPort << " -checking SSL certificate is valid" << std::endl;
-#endif
-
-    long rc = sslsock->checkCertValid();
-    //check that everything in this certificate is correct appart from the hostname
-    if (rc < 0) {
-        //no certificate
-        if ( o.fg[filtergroup]->allow_empty_host_certs)
-            return;
-        checkme->isItNaughty = true;
-        //(*checkme).whatIsNaughty = "No SSL certificate supplied by server";
-        checkme->message_no = 155;
-        (*checkme).whatIsNaughty = o.language_list.getTranslation(155);
-        (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty;
-        (*checkme).whatIsNaughtyCategories = o.language_list.getTranslation(70);
-        return;
-    } else if (rc != X509_V_OK) {
-        //something was wrong in the certificate
-        checkme->isItNaughty = true;
-        //		(*checkme).whatIsNaughty = "Certificate supplied by server was not valid";
-        checkme->message_no = 150;
-        (*checkme).whatIsNaughty = o.language_list.getTranslation(150);
-        (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty + ": " + X509_verify_cert_error_string(rc);
-        (*checkme).whatIsNaughtyCategories = o.language_list.getTranslation(70);
-        return;
-    }
-
-#ifdef DGDEBUG
-    std::cout << dbgPeerPort << " -checking SSL certificate hostname" << std::endl;
-#endif
-
-    //check the common name and altnames of a certificate against hostname
-    if (sslsock->checkCertHostname(hostname) < 0) {
-        //hostname was not matched by the certificate
-        checkme->isItNaughty = true;
-        //(*checkme).whatIsNaughty = "Server's SSL certificate does not match domain name";
-        checkme->message_no = 156;
-        (*checkme).whatIsNaughty = o.language_list.getTranslation(156);
-        (*checkme).whatIsNaughtyLog = (*checkme).whatIsNaughty;
-        (*checkme).whatIsNaughtyCategories = o.language_list.getTranslation(70);
-        return;
-    }
-}
-#endif //__SSLMITM

@@ -7,6 +7,7 @@
 #ifndef __HPP_BASESOCKET
 #define __HPP_BASESOCKET
 
+
 // INCLUDES
 
 #include <string>
@@ -17,11 +18,11 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-int selectEINTR(int numfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout, bool honour_reloadconfig = false);
+int selectEINTR(int numfds, fd_set * readfds, fd_set * writefds, fd_set * exceptfds, struct timeval *timeout, bool honour_reloadconfig = false);
 
 class BaseSocket
 {
-    public:
+public:
     // create socket from FD - must be overridden to clear the relevant address structs in derived classes
     BaseSocket(int fd);
 
@@ -41,8 +42,8 @@ class BaseSocket
     int getTimeout();
 
     // close & reset the connection - these must clear address structures & call baseReset/baseAccept
-    virtual void reset() = 0;
-    virtual BaseSocket *accept() = 0;
+    virtual void reset()=0;
+    virtual BaseSocket* accept()=0;
 
     // non-blocking check for input data
     bool checkForInput();
@@ -67,7 +68,7 @@ class BaseSocket
     // write to socket, throwing std::exception on error - can be told to break on -r
     void writeToSockete(const char *buff, int len, unsigned int flags, int timeout, bool honour_reloadconfig = false) throw(std::exception);
 
-    protected:
+protected:
     // socket-wide timeout (is this actually used?)
     int timeout;
     // length of address of other end of socket (e.g. size of sockaddr_in or sockaddr_un)
@@ -91,3 +92,4 @@ class BaseSocket
 };
 
 #endif
+

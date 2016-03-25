@@ -2,6 +2,7 @@
 // http://e2guardian.org/
 // Released under the GPL v2, with the OpenSSL exception described in the README file.
 
+
 // INCLUDES
 
 #ifdef HAVE_CONFIG_H
@@ -31,6 +32,7 @@
 #include <sys/times.h>
 #include "NaughtyFilter.hpp"
 #endif
+
 
 // GLOBALS
 #ifndef FD_SETSIZE
@@ -72,17 +74,17 @@ void read_config(const char *configfile, int type);
 void read_config(const char *configfile, int type)
 {
     int rc = open(configfile, 0, O_RDONLY);
-    if (rc < 0) {
+    if (rc < 0)    {
         syslog(LOG_ERR, "Error opening %s", configfile);
         std::cerr << "Error opening " << configfile << std::endl;
-        exit(1); // could not open conf file for reading, exit with error
+        exit(1);  // could not open conf file for reading, exit with error
     }
     close(rc);
 
-    if (!o.read(configfile, type)) {
+    if (!o.read(configfile, type))    {
         syslog(LOG_ERR, "%s", "Error parsing the e2guardian.conf file or other e2guardian configuration files");
         std::cerr << "Error parsing the e2guardian.conf file or other e2guardian configuration files" << std::endl;
-        exit(1); // OptionContainer class had an error reading the conf or other files so exit with error
+        exit(1);  // OptionContainer class had an error reading the conf or other files so exit with error
     }
 }
 
@@ -94,11 +96,10 @@ int main(int argc, char *argv[])
     bool needreset = false;
     bool total_block_list = false;
     std::string configfile(__CONFFILE);
-    std::string prog_name("e2guardian");
     srand(time(NULL));
     int rc;
 
-    openlog(prog_name.c_str(), LOG_PID | LOG_CONS, LOG_USER);
+    openlog("e2guardian", LOG_PID | LOG_CONS, LOG_USER);
 
 #ifdef DGDEBUG
     std::cout << "Running in debug mode..." << std::endl;
@@ -108,12 +109,12 @@ int main(int argc, char *argv[])
     char benchmark = '\0';
 #endif
 
-    for (int i = 1; i < argc; i++) {
-        if (argv[i][0] == '-') {
-            for (unsigned int j = 1; j < strlen(argv[i]); j++) {
+    for (int i = 1; i < argc; i++)    {
+        if (argv[i][0] == '-')        {
+            for (unsigned int j = 1; j < strlen(argv[i]); j++)            {
                 char option = argv[i][j];
                 bool dobreak = false;
-                switch (option) {
+                switch (option)                {
                 case 'q':
                     read_config(configfile.c_str(), 0);
                     return sysv_kill(o.pid_filename);
@@ -139,18 +140,17 @@ int main(int argc, char *argv[])
                     read_config(configfile.c_str(), 0);
                     return sysv_usr1(o.pid_filename);
                 case 'v':
-                    std::cout << "e2guardian " << PACKAGE_VERSION << std::endl
-                              << std::endl
+                    std::cout << "e2guardian " << PACKAGE_VERSION << std::endl << std::endl
                               << "Built with: " << DG_CONFIGURE_OPTIONS << std::endl;
                     return 0;
                 case 'N':
                     nodaemon = true;
                     break;
                 case 'c':
-                    if ((i + 1) < argc) {
-                        configfile = argv[i + 1];
-                        dobreak = true; // broken-ness of this option reported by Jason Gauthier 2006-03-09
-                    } else {
+                    if ((i+1) < argc)                    {
+                        configfile = argv[i+1];
+                        dobreak = true;  // broken-ness of this option reported by Jason Gauthier 2006-03-09
+                    }                    else                    {
                         std::cerr << "No config file specified!" << std::endl;
                         return 1;
                     }
@@ -169,7 +169,7 @@ int main(int argc, char *argv[])
                     std::cout << "  -Q kill any running copy AND start a new one with current options." << std::endl;
                     std::cout << "  -s shows the parent process PID and exits." << std::endl;
                     std::cout << "  -r closes all connections and reloads config files by issuing a HUP," << std::endl;
-                    std::cout << "     but this does not reset the maxchildren option (amongst others)." << std::endl;
+                    std::cout << "     but this does not reset the maxsubprocs option (amongst others)." << std::endl;
                     std::cout << "  -g gently restarts by not closing all current connections; only reloads" << std::endl
                               << "     filter group config files. (Issues a USR1)" << std::endl;
                     std::cout << "  -i read total block list from stdin" << std::endl;
@@ -182,7 +182,7 @@ int main(int argc, char *argv[])
                     return 0;
 #ifdef __BENCHMARK
                 case '-':
-                    if (strlen(argv[i]) != 4) {
+                    if (strlen(argv[i]) != 4)                    {
                         std::cerr << "Invalid benchmark option" << std::endl;
                         return 1;
                     }
@@ -191,8 +191,7 @@ int main(int argc, char *argv[])
                     break;
 #endif
                 }
-                if (dobreak)
-                    break; // skip to the next argument
+                if (dobreak) break; // skip to the next argument
             }
         }
     }
@@ -200,19 +199,13 @@ int main(int argc, char *argv[])
     // Set current locale for proper character conversion
     setlocale(LC_ALL, "");
 
-    if (needreset) {
+    if (needreset)    {
         o.reset();
     }
 
     read_config(configfile.c_str(), 2);
 
-    if ( ! o.name_suffix.empty() ) {
-      prog_name += o.name_suffix;
-      closelog();
-      openlog(prog_name.c_str(), LOG_PID | LOG_CONS, LOG_USER);
-    }
-
-    if (total_block_list && !o.readinStdin()) {
+    if (total_block_list && ! o.readinStdin())    {
         syslog(LOG_ERR, "%s", "Error on reading total_block_list");
         std::cerr << "Error on reading total_block_list" << std::endl;
 //		return 1;
@@ -224,26 +217,26 @@ int main(int argc, char *argv[])
 
 #ifdef __BENCHMARK
     // run benchmarks instead of starting the daemon
-    if (benchmark) {
+    if (benchmark)    {
         std::string results;
-        char *found;
+        char* found;
         struct tms then, now;
         std::string line;
-        std::deque<String *> lines;
-        while (!std::cin.eof()) {
+        std::deque<String*> lines;
+        while (!std::cin.eof())        {
             std::getline(std::cin, line);
-            String *strline = new String(line);
+            String* strline = new String(line);
             lines.push_back(strline);
         }
-        String *strline = NULL;
+        String* strline = NULL;
         times(&then);
-        switch (benchmark) {
+        switch (benchmark)        {
         case 's':
             // bannedsitelist
-            while (!lines.empty()) {
+            while (!lines.empty())            {
                 strline = lines.back();
                 lines.pop_back();
-                if ((found = o.fg[0]->inBannedSiteList(*strline))) {
+                if ((found = o.fg[0]->inBannedSiteList(*strline)))                {
                     results += found;
                     results += '\n';
                 }
@@ -252,39 +245,40 @@ int main(int argc, char *argv[])
             break;
         case 'u':
             // bannedurllist
-            while (!lines.empty()) {
+            while (!lines.empty())            {
                 strline = lines.back();
                 lines.pop_back();
-                if ((found = o.fg[0]->inBannedURLList(*strline))) {
+                if ((found = o.fg[0]->inBannedURLList(*strline)))                {
                     results += found;
                     results += '\n';
                 }
                 delete strline;
             }
             break;
-        case 'p': {
+        case 'p':        {
             // phraselists
             std::deque<unsigned int> found;
             std::string file;
-            while (!lines.empty()) {
+            while (!lines.empty())            {
                 strline = lines.back();
                 lines.pop_back();
                 file += strline->toCharArray();
                 delete strline;
             }
             char cfile[file.length() + 129];
-            memcpy(cfile, file.c_str(), sizeof(char) * file.length());
+            memcpy(cfile, file.c_str(), sizeof(char)*file.length());
             o.lm.l[o.fg[0]->banned_phrase_list]->graphSearch(found, cfile, file.length());
-            for (std::deque<unsigned int>::iterator i = found.begin(); i != found.end(); i++) {
+            for (std::deque<unsigned int>::iterator i = found.begin(); i != found.end(); i++)            {
                 results += o.lm.l[o.fg[0]->banned_phrase_list]->getItemAtInt(*i);
                 results += '\n';
             }
-        } break;
-        case 'n': {
+        }
+        break;
+        case 'n':        {
             // NaughtyFilter
             std::string file;
             NaughtyFilter n;
-            while (!lines.empty()) {
+            while (!lines.empty())            {
                 strline = lines.back();
                 lines.pop_back();
                 file += strline->toCharArray();
@@ -293,89 +287,87 @@ int main(int argc, char *argv[])
             DataBuffer d(file.c_str(), file.length());
             String f;
             n.checkme(&d, f, f);
-            std::cout << n.isItNaughty << std::endl
-                      << n.whatIsNaughty << std::endl
-                      << n.whatIsNaughtyLog << std::endl
-                      << n.whatIsNaughtyCategories << std::endl;
-        } break;
+            std::cout << n.isItNaughty << std::endl << n.whatIsNaughty << std::endl << n.whatIsNaughtyLog << std::endl << n.whatIsNaughtyCategories << std::endl;
+        }
+        break;
         default:
             std::cerr << "Invalid benchmark option" << std::endl;
             return 1;
         }
         times(&now);
-        std::cout << results << std::endl
-                  << "time: " << now.tms_utime - then.tms_utime << std::endl;
+        std::cout << results << std::endl << "time: " << now.tms_utime - then.tms_utime << std::endl;
         return 0;
     }
 #endif
 
-    if (sysv_amirunning(o.pid_filename)) {
+    if (sysv_amirunning(o.pid_filename))    {
         syslog(LOG_ERR, "%s", "I seem to be running already!");
         std::cerr << "I seem to be running already!" << std::endl;
-        return 1; // can't have two copies running!!
+        return 1;  // can't have two copies running!!
     }
 
-    if (nodaemon) {
+    if (nodaemon)    {
         o.no_daemon = 1;
     }
     // calc the number of listening processes
     int no_listen_fds;
-    if (o.map_ports_to_ips) {
+    if (o.map_ports_to_ips)    {
         no_listen_fds = o.filter_ip.size();
-    } else {
+    }
+    else    {
         no_listen_fds = o.filter_ports.size() * o.filter_ip.size();
     }
 
     struct rlimit rlim;
-    if (getrlimit(RLIMIT_NOFILE, &rlim) != 0) {
+    if (getrlimit(RLIMIT_NOFILE, &rlim) != 0)    {
         syslog(LOG_ERR, "getrlimit call returned %d error", errno);
         return 1;
     }
-    int max_maxchildren;
+    int max_maxsubprocs;
     // enough fds needed for listening_fds + logger + ipcs + stdin/out/err
-    // in addition to children
-    // on soft/gentle restarts headroom may be needed while children die
-    // so use prefork_children as an estimate for this value.
-    max_maxchildren = rlim.rlim_cur - (no_listen_fds + 6);
+    // in addition to subprocs
+    // on soft/gentle restarts headroom may be needed while subprocs die
+    // so use prefork_subprocs as an estimate for this value.
+    max_maxsubprocs = rlim.rlim_cur - (no_listen_fds + 6 );
 
 #ifndef FD_SETSIZE_OVERIDE
     /* Fix ugly crash */
     /* Temporary sucurity protection about FD_SETSIZE limit - for all system now - later for no epoll system */
 
-    if (DANS_MAXFD > FD_SETSIZE) {
+    if (DANS_MAXFD > FD_SETSIZE)    {
         syslog(LOG_ERR, "%s", "Compiled with --with-filedescriptors too high");
         std::cerr << " Compiled with --with-filedescriptors too high" << std::endl;
         std::cerr << "You should upgrade your FD_SETSIZE=" << FD_SETSIZE << std::endl;
         std::cerr << "E2guardian compiled with with-filedescriptors=" << DANS_MAXFD << std::endl;
         std::cerr << "Or reduce --with-filedescriptors=" << DANS_MAXFD << " under " << FD_SETSIZE << std::endl;
-        return 1; // we can't have rampant proccesses can we?
+        return 1;  // we can't have rampant proccesses can we?
     }
 #endif
-    if ((o.max_children + o.prefork_children) > max_maxchildren) {
-        syslog(LOG_ERR, "%s", "maxchildren option in e2guardian.conf has a value too high.");
-        std::cerr << " maxchildren option in e2guardian.conf has a value too high for current file id limit (" << rlim.rlim_cur << ")" << std::endl;
-        std::cerr << "The total of maxchildren " << o.max_children << " plus preforkchildren " << o.prefork_children << " must not exceed " << max_maxchildren << "" << std::endl;
+    if ((o.max_subprocs + o.prefork_subprocs) > max_maxsubprocs)    {
+        syslog(LOG_ERR, "%s", "maxsubprocs option in e2guardian.conf has a value too high.");
+        std::cerr << " maxsubprocs option in e2guardian.conf has a value too high for current file id limit (" << rlim.rlim_cur << ")"<< std::endl;
+        std::cerr << "The total of maxsubprocs " << o.max_subprocs << " plus preforksubprocs " << o.prefork_subprocs <<  " must not exceed " << max_maxsubprocs << "" << std::endl;
         std::cerr << "in this configuration." << std::endl;
-        std::cerr << "Reduce maxchildren and/or preforkchilden" << std::endl;
+        std::cerr << "Reduce maxsubprocs and/or preforkchilden" << std::endl;
         std::cerr << "Or recompile with an increased --with-filedescriptors=" << DANS_MAXFD << " and/or " << std::endl;
         std::cerr << "upgrade your FD_SETSIZE=" << FD_SETSIZE << std::endl;
-        return 1; // we can't have rampant proccesses can we?
+        return 1;  // we can't have rampant proccesses can we?
     }
 
-    unsigned int rootuid; // prepare a struct for use later
+    unsigned int rootuid;  // prepare a struct for use later
     rootuid = geteuid();
     o.root_user = rootuid;
 
-    struct passwd *st; // prepare a struct
+    struct passwd *st;  // prepare a struct
     struct group *sg;
 
     // "daemongroup" option exists, but never used to be honoured. this is now
     // an important feature, however, because we need to be able to create temp
     // files with suitable permissions for scanning by AV daemons - we do this
     // by becoming a member of a specified AV group and setting group read perms
-    if ((sg = getgrnam(o.daemon_group_name.c_str())) != 0) {
+    if ((sg = getgrnam(o.daemon_group_name.c_str())) != 0)    {
         o.proxy_group = sg->gr_gid;
-    } else {
+    }    else    {
         syslog(LOG_ERR, "Unable to getgrnam(): %s", strerror(errno));
         syslog(LOG_ERR, "Check the group that e2guardian runs as (%s)", o.daemon_group_name.c_str());
         std::cerr << "Unable to getgrnam(): " << strerror(errno) << std::endl;
@@ -383,75 +375,77 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    if ((st = getpwnam(o.daemon_user_name.c_str())) != 0) { // find uid for proxy user
+
+    if ((st = getpwnam(o.daemon_user_name.c_str())) != 0)  	// find uid for proxy user
+    {
         o.proxy_user = st->pw_uid;
 
-        rc = setgid(o.proxy_group); // change to rights of proxy user group
+        rc = setgid(o.proxy_group);  // change to rights of proxy user group
         // i.e. low - for security
-        if (rc == -1) {
+        if (rc == -1)        {
             syslog(LOG_ERR, "%s", "Unable to setgid()");
             std::cerr << "Unable to setgid()" << std::endl;
-            return 1; // setgid failed for some reason so exit with error
+            return 1;  // setgid failed for some reason so exit with error
         }
 #ifdef HAVE_SETREUID
-        rc = setreuid((uid_t)-1, st->pw_uid);
+        rc = setreuid((uid_t) - 1, st->pw_uid);
 #else
-        rc = seteuid(o.proxy_user); // need to be euid so can su back
-// (yes it negates but no choice)
+        rc = seteuid(o.proxy_user);  // need to be euid so can su back
+        // (yes it negates but no choice)
 #endif
-        if (rc == -1) {
+        if (rc == -1)        {
             syslog(LOG_ERR, "Unable to seteuid()");
             std::cerr << "Unable to seteuid()" << std::endl;
-            return 1; // seteuid failed for some reason so exit with error
+            return 1;  // seteuid failed for some reason so exit with error
         }
-    } else {
+    }    else    {
         syslog(LOG_ERR, "Unable to getpwnam() - does the proxy user exist?");
         std::cerr << "Unable to getpwnam() - does the proxy user exist?" << std::endl;
         std::cerr << "Proxy user looking for is '" << o.daemon_user_name << "'" << std::endl;
-        return 1; // was unable to lockup the user id from passwd
+        return 1;  // was unable to lockup the user id from passwd
         // for some reason, so exit with error
     }
 
-    if (!o.no_logger && !o.log_syslog) {
+    if (!o.no_logger && !o.log_syslog)    {
         std::ofstream logfiletest(o.log_location.c_str(), std::ios::app);
-        if (logfiletest.fail()) {
+        if (logfiletest.fail())        {
             syslog(LOG_ERR, "Error opening/creating log file. (check ownership and access rights).");
             std::cout << "Error opening/creating log file. (check ownership and access rights)." << std::endl;
             std::cout << "I am running as " << o.daemon_user_name << " and I am trying to open " << o.log_location << std::endl;
-            return 1; // opening the log file for writing failed
+            return 1;  // opening the log file for writing failed
         }
         logfiletest.close();
     }
 
-    urldecode_re.comp("%[0-9a-fA-F][0-9a-fA-F]"); // regexp for url decoding
+    urldecode_re.comp("%[0-9a-fA-F][0-9a-fA-F]");  // regexp for url decoding
 
 #ifdef HAVE_PCRE
     // todo: these only work with PCRE enabled (non-greedy matching).
     // change them, or make them a feature for which you need PCRE?
-    absurl_re.comp("[\"'](http|ftp)://.*?[\"']"); // find absolute URLs in quotes
-    relurl_re.comp("(href|src)\\s*=\\s*[\"'].*?[\"']"); // find relative URLs in quotes
+    absurl_re.comp("[\"'](http|ftp)://.*?[\"']");  // find absolute URLs in quotes
+    relurl_re.comp("(href|src)\\s*=\\s*[\"'].*?[\"']");  // find relative URLs in quotes
 #endif
 
     // this is no longer a class, but the comment has been retained for historical reasons. PRA 03-10-2005
     //FatController f;  // Thomas The Tank Engine
 
-    while (true) {
+    while (true)    {
         rc = fc_controlit();
         // its a little messy, but I wanted to split
         // all the ground work and non-daemon stuff
         // away from the daemon class
         // However the line is not so fine.
-        if (rc == 2) {
+        if (rc == 2)        {
 
-// In order to re-read the conf files and create cache files
-// we need to become root user again
+            // In order to re-read the conf files and create cache files
+            // we need to become root user again
 
 #ifdef HAVE_SETREUID
-            rc = setreuid((uid_t)-1, rootuid);
+            rc = setreuid((uid_t) - 1, rootuid);
 #else
             rc = seteuid(rootuid);
 #endif
-            if (rc == -1) {
+            if (rc == -1)            {
                 syslog(LOG_ERR, "%s", "Unable to seteuid() to read conf files.");
 #ifdef DGDEBUG
                 std::cerr << "Unable to seteuid() to read conf files." << std::endl;
@@ -462,7 +456,7 @@ int main(int argc, char *argv[])
             std::cout << "About to re-read conf file." << std::endl;
 #endif
             o.reset();
-            if (!o.read(configfile.c_str(), 2)) {
+            if (!o.read(configfile.c_str(), 2))            {
                 syslog(LOG_ERR, "%s", "Error re-parsing the e2guardian.conf file or other e2guardian configuration files");
 #ifdef DGDEBUG
                 std::cerr << "Error re-parsing the e2guardian.conf file or other e2guardian configuration files" << std::endl;
@@ -475,36 +469,37 @@ int main(int argc, char *argv[])
             std::cout << "conf file read." << std::endl;
 #endif
 
-            if (nodaemon) {
+            if (nodaemon)            {
                 o.no_daemon = 1;
             }
 
-            while (waitpid(-1, NULL, WNOHANG) > 0) {
-            } // mop up defunts
+            while (waitpid(-1, NULL, WNOHANG) > 0)            {
+            }	// mop up defunts
 
 #ifdef HAVE_SETREUID
-            rc = setreuid((uid_t)-1, st->pw_uid);
+            rc = setreuid((uid_t) - 1, st->pw_uid);
 #else
-            rc = seteuid(st->pw_uid); // become low priv again
+            rc = seteuid(st->pw_uid);  // become low priv again
 #endif
 
-            if (rc == -1) {
+            if (rc == -1)            {
                 syslog(LOG_ERR, "%s", "Unable to re-seteuid()");
 #ifdef DGDEBUG
                 std::cerr << "Unable to re-seteuid()" << std::endl;
 #endif
-                return 1; // seteuid failed for some reason so exit with error
+                return 1;  // seteuid failed for some reason so exit with error
             }
             continue;
         }
 
-        if (rc > 0) {
-            if (!is_daemonised) {
+        if (rc > 0)        {
+            if (!is_daemonised)            {
                 std::cerr << "Exiting with error" << std::endl;
             }
             syslog(LOG_ERR, "%s", "Exiting with error");
-            return rc; // exit returning the error number
+            return rc;  // exit returning the error number
         }
-        return 0; // exit without error
+        return 0;  // exit without error
     }
 }
+

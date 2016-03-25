@@ -1,7 +1,7 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html>
 	<head>
-		<title>E2Guardian - Access Denied</title>
+		<title>FilterGizmo Says: Access Denied</title>
 		<meta http-equiv="Content-Type" content="text/html;charset=iso-8859-1">
 		<!-- Ensure local favicon is loaded or site's is blanked, some sites have shady favicons. -->
 		<!-- <link rel="shortcut icon" href="favicon.ico"> -->
@@ -69,33 +69,24 @@
 			- URL- gives the URL the user was trying to get to.
 			- REASONGIVEN- gives the nice reason (i.e. not quoting the banned phrase).
 			- REASONLOGGED- gives the reason that gets logged including full details.
-			- USER- gives the username if known.
-			- IP- gives the originating IP.
 			- FILTERGROUP- gives the group number.
 			- BYPASS- gives URL which allows temporary bypass of denied page
-
+	
 			You need to remove the space between the - and the variable to use them
 			in your HTML.  They are there above so extra processing is not required.
-
-			More example templates are likely to be found on the E2Guardian web site
-			on the Extras page.
-
+		
 			This page was designed by Paul Richards.  (http://www.ridney.com/)
-
+	
 			Daniel Barron 2003-09-01
 		-->
 		<table class="main">
 			<tr><td colspan="2" class="notice">
 				Access Denied!
 			</td></tr>
-			<tr><td colspan="2" class="user">
-				<!-- Hide this bar if user is null -->
-				-USER-&nbsp;
-			</td></tr>
 			<tr>
 				<td class="org">
 					<!-- Add -ORG- for e2guardian.conf option - "organization=" -->
-					Your Organization
+					FilterGizmo
 				</td>
 				<td class="content">
 					Access to the page:
@@ -108,6 +99,12 @@
 						<span style="color:#ff0000; font-weight:bold">
 							-REASONGIVEN-
 						</span>
+						<br /><br />
+						Due to the following categories being detected:
+						<br /><br />
+						<span style="color:#ff0000; font-weight:bold">
+							-CATEGORIES-
+						</span>
 						<br /><br /><br /><br />
 						You are seeing this error because what you attempted to access appears to contain,
 						or is labeled as containing, material that has been deemed inappropriate.
@@ -117,7 +114,7 @@
 						<br /><br /><br /><br />
 					</span>
 					<span style="font-size:8pt">
-						Powered by <a href="http://www.e2guardian.org" target="_blank">E2Guardian</a>
+						Powered by <a href="http://www.filtergizmo.com" target="_blank">FilterGizmo</a>
 					</span>
 					<p>
 						<a href="http://validator.w3.org/check?uri=referer">

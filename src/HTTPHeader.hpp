@@ -5,11 +5,13 @@
 #ifndef __HPP_HTTPHeader
 #define __HPP_HTTPHeader
 
+
 // DEFINES
 
 #define __DGHEADER_SENDALL 0
 #define __DGHEADER_SENDFIRSTLINE 1
 #define __DGHEADER_SENDREST 2
+
 
 // INCLUDES
 
@@ -20,11 +22,12 @@
 #include "Socket.hpp"
 #include "RegExp.hpp"
 
+
 // DECLARATIONS
 
 class HTTPHeader
 {
-    public:
+public:
     std::deque<String> header;
     //DataBuffer postdata;
     unsigned int port;
@@ -35,7 +38,7 @@ class HTTPHeader
     // network communication funcs
 
     void setTimeout(int t);
-    void in(Socket *sock, bool allowpersistent = false, bool honour_reloadconfig = false);
+    void in(BaseSocket *sock, bool allowpersistent = false, bool honour_reloadconfig = false);
 
     // send headers out over the given socket
     // "reconnect" flag gives permission to reconnect to the socket on write error
@@ -43,6 +46,9 @@ class HTTPHeader
     // timed out but the client's end hasn't. not much use with NTLM, since squid
     // will throw a 407 and restart negotiation, but works well with basic & others.
     void out(Socket *peersock, Socket *sock, int sendflag, bool reconnect = false) throw(std::exception);
+	
+	// Sends the headers out over the specified socket
+	void out(BaseSocket *ecapSock) throw(std::exception);
 
     // discard remainder of POST data
     // amount to discard can be passed in, or will default to contentLength()
@@ -58,7 +64,7 @@ class HTTPHeader
     String getContentType();
     String getMIMEBoundary();
     // check received content type against given content type
-    bool isContentType(const String &t,int filtergroup);
+    bool isContentType(const String& t);
     // check HTTP message code to see if it's an auth required message
     bool authRequired();
     // Content-Disposition
@@ -85,14 +91,8 @@ class HTTPHeader
     // grab raw contents of Proxy-Authorization header, without b64 decode
     std::string getRawAuthData();
     // check whether a connection is persistent
-    bool isPersistent()
-    {
-        return ispersistent;
-    };
-    bool wasPersistent()
-    {
-        return waspersistent;
-    };
+    bool isPersistent()    {        return ispersistent;    };
+    bool wasPersistent()    {        return waspersistent;    };
 
     // set POST data for outgoing requests.
     // assumes that existing POST data has already been discarded
@@ -102,11 +102,12 @@ class HTTPHeader
 
     // detailed value/type checks
 
-    bool malformedURL(const String &url);
+    bool malformedURL(const String& url);
     String getAuthType();
     String getUrl(bool withport = false, bool isssl = false);
     String getLogUrl(bool withport = false, bool isssl = false);
     String url();
+
 
     String redirecturl();
 
@@ -118,7 +119,6 @@ class HTTPHeader
     void setContentLength(int newlen);
     // regexp search and replace
     bool urlRegExp(int filtergroup);
-    bool sslsiteRegExp(int filtergroup);
     bool urlRedirectRegExp(int filtergroup);
     bool DenySSL(int filtergroup);
     bool headerRegExp(int filtergroup);
@@ -154,20 +154,14 @@ class HTTPHeader
     // encode url
     String URLEncode();
 
+
     // grab referer url from headers
     String getReferer();
 
-    HTTPHeader()
-        : port(0), timeout(120), contentlength(0), postdata(NULL), dirty(true)
-    {
-        reset();
-    };
-    ~HTTPHeader()
-    {
-        delete postdata;
-    };
+    HTTPHeader():port(0), timeout(120), contentlength(0), postdata(NULL), dirty(true)    {        reset();    };
+    ~HTTPHeader()    {        delete postdata;    };
 
-    private:
+private:
     // timeout for socket operations
     int timeout;
 
@@ -216,7 +210,7 @@ class HTTPHeader
     // base64 decode an individual char
     int decode1b64(char c);
     // base64 decode a complete string
-    std::string decodeb64(const String &line);
+    std::string decodeb64(const String& line);
 
     // modify supplied accept-encoding header, adding "identity" and stripping unsupported compression types
     String modifyEncodings(String e);
@@ -230,3 +224,4 @@ class HTTPHeader
 };
 
 #endif
+

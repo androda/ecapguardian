@@ -5,13 +5,16 @@
 #ifndef __HPP_CONNECTIONHANDLER
 #define __HPP_CONNECTIONHANDLER
 
+
 // INCLUDES
 #include <iostream>
 #include <string>
 #include "OptionContainer.hpp"
 #include "Socket.hpp"
+#include "UDSocket.hpp"
 #include "HTTPHeader.hpp"
 #include "NaughtyFilter.hpp"
+
 
 // DECLARATIONS
 
@@ -22,7 +25,8 @@ void addToClean(String &url, const int fg);
 
 // record for storing information about POST data parts
 // used for building up the POST data log column
-struct postinfo {
+struct postinfo
+{
     // MIME type & original filename (if available)
     std::string mimetype;
     std::string filename;
@@ -35,26 +39,94 @@ struct postinfo {
     // (if post part was stored on disk)
     size_t bodyoffset;
     bool blocked;
-    postinfo()
-        : size(0), bodyoffset(0), blocked(false){};
+    postinfo():size(0), bodyoffset(0), blocked(false) {};
+};
+
+// Used to record the type of connection which has been established.
+// ECAP has been added so that e2guardian can offload its SSL and other extraneous
+// connection logic to the eCAP host ()
+// I like putting reference links in comments:
+// http://stackoverflow.com/questions/12183008/how-to-use-enums-in-c
+enum class ConnectionType
+{
+    INET = 1,
+    ECAP_REQMOD = 2,
+    ECAP_RESPMOD = 3,
+    UNKNOWN
+};
+
+///Flags used for filtering
+class ScanFlags
+{
+public:
+    ScanFlags(){
+	waschecked = false;
+        wasrequested = false;
+        isexception = false;
+        isourwebserver = false;
+        wasclean = false;
+        cachehit = false;
+        isbypass = false;
+        iscookiebypass = false;
+        isvirusbypass = false;
+        isscanbypass = false;
+        ispostblock = false;
+        pausedtoobig = false;
+        wasinfected = false;
+        wasscanned = false;
+        contentmodified = false;
+        urlmodified = false;
+        headermodified = false;
+        headeradded = false;
+        ismitmcandidate = false;
+        do_mitm = false;
+        is_ssl = false;
+        bypasstimestamp = 0;
+        urlredirect = false;
+    };
+
+    bool waschecked;
+    bool wasrequested;
+    bool isexception;
+    bool isourwebserver;
+    bool wasclean;
+    bool cachehit;
+    bool isbypass;
+    bool iscookiebypass;
+    bool isvirusbypass;
+    bool isscanbypass;
+    bool ispostblock;
+    bool pausedtoobig;
+    bool wasinfected;
+    bool wasscanned;
+    bool contentmodified;
+    bool urlmodified;
+    bool headermodified;
+    bool headeradded;
+    bool isconnect;
+    bool ishead;
+    bool scanerror;
+    bool ismitmcandidate;
+    bool do_mitm;
+    bool is_ssl;
+    int bypasstimestamp;
+    bool urlredirect;
 };
 
 // the ConnectionHandler class - handles filtering, scanning, and blocking of
 // data passed between a client and the external proxy.
 class ConnectionHandler
 {
-    public:
-    ConnectionHandler()
-        : clienthost(NULL){};
-    ~ConnectionHandler()
-    {
-        delete clienthost;
-    };
+public:
+    ConnectionHandler():clienthost(NULL) {};
+    ~ConnectionHandler()    {        delete clienthost;    };
 
     // pass data between proxy and client, filtering as we go.
     int handlePeer(Socket &peerconn, String &ip);
-
-    private:
+    // handles eCAP REQMOD or RESPMOD
+    int handleEcapReqmod(UDSocket &ecappeer);
+    int handleEcapRespmod(UDSocket &ecapPeer);
+private:
     int filtergroup;
     bool matchedip;
     bool persistent_authed;
@@ -70,12 +142,12 @@ class ConnectionHandler
 
     // write a log entry containing the given data (if required)
     void doLog(std::string &who, std::string &from, String &where, unsigned int &port,
-        std::string &what, String &how, off_t &size, std::string *cat, bool isnaughty, int naughtytype,
-        bool isexception, bool istext, struct timeval *thestart, bool cachehit, int code,
-        std::string &mimetype, bool wasinfected, bool wasscanned, int naughtiness, int filtergroup,
-        HTTPHeader *reqheader, int message_no = 999, bool contentmodified = false,
-        bool urlmodified = false, bool headermodified = false,
-        bool headeradded = false);
+               std::string &what, String &how, off_t &size, std::string *cat, bool isnaughty, int naughtytype,
+               bool isexception, bool istext, struct timeval *thestart, bool cachehit, int code,
+               std::string &mimetype, bool wasinfected, bool wasscanned, int naughtiness, int filtergroup,
+               HTTPHeader* reqheader, int message_no = 999, bool contentmodified = false,
+               bool urlmodified = false, bool headermodified = false,
+               bool headeradded = false);
 
     // perform URL encoding on a string
     std::string miniURLEncode(const char *s);
@@ -83,22 +155,25 @@ class ConnectionHandler
     // when using IP address counting - have we got any remaining free IPs?
     bool gotIPs(std::string ipstr);
 
+    void requestChecks(HTTPHeader *header, NaughtyFilter *checkme,
+        String *urld, String *url, int filtergroup);
+
     // check the request header is OK (client host/user/IP allowed to browse, site not banned, upload not too big)
     void requestChecks(HTTPHeader *header, NaughtyFilter *checkme, String *urld, String *url, std::string *clientip,
-        std::string *clientuser, int filtergroup, bool &isbanneduser, bool &isbannedip, std::string &room);
+                       std::string *clientuser, int filtergroup, bool &isbanneduser, bool &isbannedip, std::string &room);
 
     void requestLocalChecks(HTTPHeader *header, NaughtyFilter *checkme, String *urld, String *url, std::string *clientip,
-        std::string *clientuser, int filtergroup, bool &isbanneduser, bool &isbannedip, std::string &room);
+                            std::string *clientuser, int filtergroup, bool &isbanneduser, bool &isbannedip, std::string &room);
 
-    bool embededRefererChecks(HTTPHeader *header, String *urld, String *url, int filtergroup);
+    bool embededRefererChecks(HTTPHeader *header, String *urld, String *url,		int filtergroup);
 
     // strip the URL down to just the IP/hostname, then do an isIPHostname on the result
     bool isIPHostnameStrip(String url);
 
     // show the relevant banned page depending upon the report level settings, request type, etc.
     bool denyAccess(Socket *peerconn, Socket *proxysock, HTTPHeader *header, HTTPHeader *docheader,
-        String *url, NaughtyFilter *checkme, std::string *clientuser, std::string *clientip,
-        int filtergroup, bool ispostblock, int headersent, bool wasinfected, bool scanerror, bool forceshow = false);
+                    String *url, NaughtyFilter *checkme, std::string *clientuser, std::string *clientip,
+                    int filtergroup, bool ispostblock, int headersent, bool wasinfected, bool scanerror, bool forceshow = false);
 
     // create temporary ban bypass URLs/cookies
     String hashedURL(String *url, int filtergroup, std::string *clientip, bool infectionbypass);
@@ -106,20 +181,14 @@ class ConnectionHandler
 
     // do content scanning (AV filtering) and naughty filtering
     void contentFilter(HTTPHeader *docheader, HTTPHeader *header, DataBuffer *docbody, Socket *proxysock,
-        Socket *peerconn, int *headersent, bool *pausedtoobig, off_t *docsize, NaughtyFilter *checkme,
-        bool wasclean, int filtergroup, std::deque<CSPlugin *> &responsescanner, std::string *clientuser,
-        std::string *clientip, bool *wasinfected, bool *wasscanned, bool isbypass, String &url, String &domain,
-        bool *scanerror, bool &contentmodified, String *csmessage);
+                       Socket *peerconn, int *headersent, bool *pausedtoobig, off_t *docsize, NaughtyFilter *checkme,
+                       bool wasclean, int filtergroup, std::deque<CSPlugin *> &responsescanner, std::string *clientuser,
+                       std::string *clientip, bool *wasinfected, bool *wasscanned, bool isbypass, String &url, String &domain,
+                       bool *scanerror, bool &contentmodified, String *csmessage);
 
     // send a file to the client - used during bypass of blocked downloads
-    off_t sendFile(Socket *peerconn, String &filename, String &filemime, String &filedis, String &url);
-
-#ifdef __SSLMITM
-    //ssl certificat checking
-    void checkCertificate(String &hostname, Socket *sslSock, NaughtyFilter *checkme);
-
-    int sendProxyConnect(String &hostname, Socket *sock, NaughtyFilter *checkme);
-#endif //__SSLMITM
+    off_t sendFile(Socket *peerconn, String & filename, String & filemime, String & filedis, String &url);
 };
 
 #endif
+

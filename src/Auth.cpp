@@ -36,8 +36,7 @@ extern authcreate_t ntlmcreate;
 
 // IMPLEMENTATION
 
-AuthPlugin::AuthPlugin(ConfigVar &definition)
-    : is_connection_based(false), needs_proxy_query(false)
+AuthPlugin::AuthPlugin(ConfigVar &definition):is_connection_based(false), needs_proxy_query(false)
 {
     cv = definition;
     pluginName = cv["plugname"];
@@ -61,18 +60,18 @@ String AuthPlugin::getPluginName()
 // return -1 when user not found
 int AuthPlugin::determineGroup(std::string &user, int &fg)
 {
-    if (user.length() < 1 || user == "-") {
+    if (user.length() < 1 || user == "-")    {
         return DGAUTH_NOMATCH;
     }
     String u(user);
-    u.toLower(); // since the filtergroupslist is read in in lowercase, we should do this.
-    user = u.toCharArray(); // also pass back to ConnectionHandler, so appears lowercase in logs
+    u.toLower();  // since the filtergroupslist is read in in lowercase, we should do this.
+    user = u.toCharArray();  // also pass back to ConnectionHandler, so appears lowercase in logs
     String ue(u);
     ue += "=";
 
     char *i = o.filter_groups_list.findStartsWithPartial(ue.toCharArray());
 
-    if (i == NULL) {
+    if (i == NULL)    {
 #ifdef DGDEBUG
         std::cout << "User not in filter groups list: " << ue << std::endl;
 #endif
@@ -82,17 +81,17 @@ int AuthPlugin::determineGroup(std::string &user, int &fg)
     std::cout << "User found: " << i << std::endl;
 #endif
     ue = i;
-    if (ue.before("=") == u) {
+    if (ue.before("=") == u)    {
         ue = ue.after("=filter");
         int l = ue.length();
-        if (l < 1 || l > 2) {
+        if (l < 1 || l > 2)        {
             return DGAUTH_NOUSER;
         }
         fg = ue.toInteger();
-        if (fg > o.numfg) {
+        if (fg > o.numfg)        {
             return DGAUTH_NOUSER;
         }
-        if (fg > 0) {
+        if (fg > 0)        {
             fg--;
         }
         return DGAUTH_OK;
@@ -101,12 +100,12 @@ int AuthPlugin::determineGroup(std::string &user, int &fg)
 }
 
 // take in a configuration file, find the AuthPlugin class associated with the plugname variable, and return an instance
-AuthPlugin *auth_plugin_load(const char *pluginConfigPath)
+AuthPlugin* auth_plugin_load(const char *pluginConfigPath)
 {
     ConfigVar cv;
 
-    if (cv.readVar(pluginConfigPath, "=") > 0) {
-        if (!is_daemonised) {
+    if (cv.readVar(pluginConfigPath, "=") > 0)    {
+        if (!is_daemonised)        {
             std::cerr << "Unable to load plugin config: " << pluginConfigPath << std::endl;
         }
         syslog(LOG_ERR, "Unable to load plugin config %s", pluginConfigPath);
@@ -114,43 +113,43 @@ AuthPlugin *auth_plugin_load(const char *pluginConfigPath)
     }
 
     String plugname(cv["plugname"]);
-    if (plugname.length() < 1) {
-        if (!is_daemonised) {
+    if (plugname.length() < 1)    {
+        if (!is_daemonised)        {
             std::cerr << "Unable read plugin config plugname variable: " << pluginConfigPath << std::endl;
         }
         syslog(LOG_ERR, "Unable read plugin config plugname variable %s", pluginConfigPath);
         return NULL;
     }
 
-    if (plugname == "proxy-basic") {
+    if (plugname == "proxy-basic")    {
 #ifdef DGDEBUG
         std::cout << "Enabling proxy-basic auth plugin" << std::endl;
 #endif
         return proxycreate(cv);
     }
 
-    if (plugname == "proxy-digest") {
+    if (plugname == "proxy-digest")    {
 #ifdef DGDEBUG
         std::cout << "Enabling proxy-digest auth plugin" << std::endl;
 #endif
         return digestcreate(cv);
     }
 
-    if (plugname == "ident") {
+    if (plugname == "ident")    {
 #ifdef DGDEBUG
         std::cout << "Enabling ident server auth plugin" << std::endl;
 #endif
         return identcreate(cv);
     }
 
-    if (plugname == "ip") {
+    if (plugname == "ip")    {
 #ifdef DGDEBUG
         std::cout << "Enabling IP-based auth plugin" << std::endl;
 #endif
         return ipcreate(cv);
     }
 
-    if (plugname == "port") {
+    if (plugname == "port")    {
 #ifdef DGDEBUG
         std::cout << "Enabling port-based auth plugin" << std::endl;
 #endif
@@ -158,7 +157,7 @@ AuthPlugin *auth_plugin_load(const char *pluginConfigPath)
     }
 
 #ifdef PRT_DNSAUTH
-    if (plugname == "dnsauth") {
+    if (plugname == "dnsauth")    {
 #ifdef DGDEBUG
         std::cout << "Enabling DNS-based auth plugin" << std::endl;
 #endif
@@ -167,32 +166,18 @@ AuthPlugin *auth_plugin_load(const char *pluginConfigPath)
 #endif
 
 #ifdef ENABLE_NTLM
-    if (plugname == "proxy-ntlm") {
+    if (plugname == "proxy-ntlm")    {
 #ifdef DGDEBUG
         std::cout << "Enabling proxy-NTLM auth plugin" << std::endl;
 #endif
         return ntlmcreate(cv);
     }
 #endif
-#ifdef __SSLMITM
-//	if (plugname == "ssl") {
-#ifdef DGDEBUG
-//		std::cout << "Enabling SSL login/core auth plugin" << std::endl;
-#endif
-//		return sslcorecreate(cv);
-//	}
 
-//	if (plugname == "core") {
-#ifdef DGDEBUG
-//		std::cout << "Enabling SSL login/core auth plugin" << std::endl;
-#endif
-//		return sslcorecreate(cv);
-//	}
-#endif //__SSLMITM
-
-    if (!is_daemonised) {
+    if (!is_daemonised)    {
         std::cerr << "Unable to load plugin: " << pluginConfigPath << std::endl;
     }
     syslog(LOG_ERR, "Unable to load plugin %s", pluginConfigPath);
     return NULL;
 }
+
