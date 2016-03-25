@@ -527,11 +527,67 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
     		Send the file handles to the eCAP client and have it write back 'x' or something when it's done with them.
     */
 
+	NaughtyFilter checkme;
+	HTTPHeader requestHeader;
+	//Set header read timeout - waiting forever is a bad thing
+	requestHeader.setTimeout(o.pcon_timeout);
+	HTTPHeader responseHeader;
+	//Set header read timeout - waiting forever is a bad thing
+	responseHeader.setTimeout(o.pcon_timeout);
+	std::deque<CSPlugin*> responsescanners;
+
+	try{
+		std::cout << "Reading in request header" << std::endl;
+		requestHeader.in(&ecappeer, true, true);
+
+        	//The eCAP peer is going to just dump over the response header.  Therefore, read it in.
+		std::cout << "Reading in response header" << std::endl;
+        	responseHeader.in(&ecappeer, true, true);  // get header from eCAP client, allowing persistency and breaking on reloadconfig
+
+		// don't even bother scan testing if the content-length header indicates the file is larger than the maximum size we'll scan
+        	// - based on patch supplied by cahya (littlecahya@yahoo.de)
+        	// be careful: contentLength is signed, and max_content_filecache_scan_size is unsigned
+        	off_t cl = responseHeader.contentLength();
+		
+		// ~ line 1509 is where the response scanners are initially filled (e2guardian)
+		
+		
+        	if (!responsescanners.empty())                {
+            		if (cl == 0) {
+				responsescanners.clear();
+			} // Empty response need not be scanned
+            		else if ((cl > 0) && (cl > o.max_content_filecache_scan_size)) {
+				responsescanners.clear();
+			} // Too large?  Not scanning.
+        	}
+
+		/*
+		Based on the header, determine whether the response body needs to be scanned, blocked, or allowed:
+
+		Look at the MIME-typing of the response - allow / block based on allowed / blocked types
+		If allowed, determine whether it's a response type that needs to be scanned
+		If needs blocking, send 'b' to ecap peer, followed by block page headers and body
+		If allowing without scan, send 'v' to ecap peer and exit the method
+		If needs scanning (and is a scannable size), send 's' to ecap peer - ecap peer will send over the response body once it's available
+			-scan the response body
+			-respond with 'v' to allow the response unaltered
+			-respond with 'b' to block, followed by block page headers and body
+		*/
+
+
+	} catch (std::exception & e)    {
+#ifdef DGDEBUG
+        std::cerr << dbgPeerPort << " -connection handler caught an exception: " << e.what() << std::endl;
+#endif
+        //No need to call ecappeer.close() before returning.
+        //The destructor for ecappeer is called up in FatController, which auto-closes the handle
+        return 0;
+    }
+
 	//Currently just sending back the 'use virgin' signal for testing
     ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
     return 0;
 }
-
 
 // pass data between proxy and client, filtering as we go.
 // this is the only public function of ConnectionHandler
