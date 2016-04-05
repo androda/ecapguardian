@@ -42,7 +42,7 @@ void FDTunnel::reset()
 
 // tunnel data from fdfrom to fdto (unfiltered)
 // return false if throughput larger than target throughput
-bool FDTunnel::tunnel(Socket &sockfrom, Socket &sockto, bool twoway, off_t targetthroughput, bool ignore)
+bool FDTunnel::tunnel(BaseSocket &sockfrom, BaseSocket &sockto, bool twoway, off_t targetthroughput, bool ignore)
 {
     if (targetthroughput == 0)    {
 #ifdef DGDEBUG

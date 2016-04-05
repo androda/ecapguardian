@@ -15,47 +15,35 @@ class DMPlugin;
 
 class DataBuffer
 {
-    public:
+public:
     char *data;
     off_t buffer_length;
     char *compresseddata;
     off_t compressed_buffer_length;
     off_t tempfilesize;
     String tempfilepath;
-    bool dontsendbody; // used for fancy download manager for example
+    bool dontsendbody;  // used for fancy download manager for example
     int tempfilefd;
 
     // the download manager we used during the last "in"
     DMPlugin *dm_plugin;
 
     DataBuffer();
-    DataBuffer(const void *indata, off_t length);
+    DataBuffer(const void* indata, off_t length);
     ~DataBuffer();
 
-    int length()
-    {
-        return buffer_length;
-    };
+    int length()    {        return buffer_length;    };
 
-    void copyToMemory(char *location)
-    {
-        memcpy(location, data, buffer_length);
-    };
+    void copyToMemory(char *location)    {        memcpy(location, data, buffer_length);    };
 
     // read body in from proxy
     // gives true if it pauses due to too much data
-    bool in(Socket *sock, Socket *peersock, class HTTPHeader *requestheader, class HTTPHeader *docheader, bool runav, int *headersent);
+    bool in(BaseSocket * sock, BaseSocket * peersock, class HTTPHeader * requestheader, class HTTPHeader * docheader, bool runav, int *headersent);
     // send body to client
-    void out(Socket *sock) throw(std::exception);
+    void out(Socket * sock) throw(std::exception);
 
-    void setTimeout(int t)
-    {
-        timeout = t;
-    };
-    void setDecompress(String d)
-    {
-        decompress = d;
-    };
+    void setTimeout(int t)    {        timeout = t;    };
+    void setDecompress(String d)    {        decompress = d;    };
 
     // swap back to compressed version of body data (if data was decompressed but not modified; saves bandwidth)
     void swapbacktocompressed();
@@ -67,8 +55,7 @@ class DataBuffer
     int getTempFileFD();
 
     void reset();
-
-    private:
+private:
     // DM plugins do horrible things to our innards - this is acceptable pending a proper cleanup
     friend class DMPlugin;
     friend class dminstance;
@@ -88,8 +75,10 @@ class DataBuffer
     void zlibinflate(bool header);
 
     // buffered socket reads - one with an extra "global" timeout within which all individual reads must complete
-    int bufferReadFromSocket(Socket *sock, char *buffer, int size, int sockettimeout);
-    int bufferReadFromSocket(Socket *sock, char *buffer, int size, int sockettimeout, int timeout);
+    int bufferReadFromSocket(BaseSocket * sock, char *buffer, int size, int sockettimeout);
+    int bufferReadFromSocket(BaseSocket * sock, char *buffer, int size, int sockettimeout, int timeout);
+
 };
 
 #endif
+

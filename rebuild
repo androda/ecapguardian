@@ -1,0 +1,4 @@
+make
+rm /sbin/e2guardian_old
+mv /sbin/e2guardian /sbin/e2guardian_old
+cp src/e2guardian /sbin/e2guardian

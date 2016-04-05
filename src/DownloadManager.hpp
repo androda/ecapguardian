@@ -7,6 +7,7 @@
 #ifndef __HPP_DOWNLOADMANAGER
 #define __HPP_DOWNLOADMANAGER
 
+
 // INCLUDES
 
 #include "String.hpp"
@@ -24,42 +25,38 @@
 class DMPlugin;
 
 // class factory functions for DM plugins
-typedef DMPlugin *dmcreate_t(ConfigVar &);
+typedef DMPlugin* dmcreate_t(ConfigVar &);
 
 // the DMPlugin interface - inherit & implement this to make download managers
-class DMPlugin : public Plugin
+class DMPlugin:public Plugin
 {
-    public:
+public:
     DMPlugin(ConfigVar &definition);
-    virtual ~DMPlugin(){};
+    virtual ~DMPlugin() {};
 
     // plugin initialise/quit routines.
     // if lastplugin is true, this is being loaded as the fallback option,
     // and needn't load in purely request matching related options.
-    virtual int init(void *args);
-    virtual int quit()
-    {
-        return 0;
-    };
+    virtual int init(void* args);
+    virtual int quit()    {        return 0;    };
 
     // will this download manager handle this request?
     virtual bool willHandle(HTTPHeader *requestheader, HTTPHeader *docheader);
 
     // download the body for the given request
-    virtual int in(DataBuffer *d, Socket *sock, Socket *peersock,
-        HTTPHeader *requestheader, HTTPHeader *docheader, bool wantall, int *headersent, bool *toobig)
-        = 0;
+    virtual int in(DataBuffer *d, BaseSocket *sock, BaseSocket *peersock,
+                   HTTPHeader *requestheader, HTTPHeader *docheader, bool wantall, int *headersent, bool *toobig) = 0;
 
     // send a download link to the client (the actual link, and the clean "display" version of the link)
     virtual void sendLink(Socket &peersock, String &linkurl, String &prettyurl);
 
-    private:
+private:
     // regular expression for matching supported user agents
     RegExp ua_match;
     // if there isn't one, set this flag
     bool alwaysmatchua;
 
-    protected:
+protected:
     // our configuration values
     // derived classes could definitely have a use for these
     ConfigVar cv;
@@ -76,6 +73,7 @@ class DMPlugin : public Plugin
 };
 
 // create an instance of the plugin given in the configuration file
-DMPlugin *dm_plugin_load(const char *pluginConfigPath);
+DMPlugin* dm_plugin_load(const char *pluginConfigPath);
 
 #endif
+

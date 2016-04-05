@@ -68,6 +68,11 @@ public:
     // write to socket, throwing std::exception on error - can be told to break on -r
     void writeToSockete(const char *buff, int len, unsigned int flags, int timeout, bool honour_reloadconfig = false) throw(std::exception);
 
+    // internal buffer
+    char buffer[1024];
+    int buffstart;
+    int bufflen;
+
 protected:
     // socket-wide timeout (is this actually used?)
     int timeout;
@@ -75,10 +80,6 @@ protected:
     socklen_t peer_adr_length;
     // socket FD
     int sck;
-    // internal buffer
-    char buffer[1024];
-    int buffstart;
-    int bufflen;
 
     // constructor - sets default values. override this if you actually wish to create a default socket.
     BaseSocket();

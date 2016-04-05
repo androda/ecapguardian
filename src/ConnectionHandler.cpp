@@ -47,6 +47,7 @@ const std::string blockHeaders("HTTP/1.1 200 OK\nAccept-Ranges: bytes\nConnectio
 const char FLAG_USE_VIRGIN = 'v';
 const char FLAG_MODIFY = 'm';
 const char FLAG_BLOCK = 'b';
+const char FLAG_NEEDS_SCAN = 's';
 const char FLAG_MSG_RECVD = 'r';
 const std::string FLAG_END = "\n\n\0\0";
 
@@ -337,7 +338,6 @@ int ConnectionHandler::handleEcapReqmod(UDSocket &ecappeer){
     If using the virgin headers, send 'v' to ecappeer.
     If modifying the headers, send 'm' to ecappeer, followed by a dump of the modified header.
     	-This does not check the request body
-    If blocking/denying the request, send back 'b' and see the RESPMOD comment below for an idea of how that could work.
     */
 
     NaughtyFilter checkme;
@@ -528,30 +528,86 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
     */
 
 	NaughtyFilter checkme;
+	std::string mimetype("-");
 	HTTPHeader requestHeader;
 	//Set header read timeout - waiting forever is a bad thing
 	requestHeader.setTimeout(o.pcon_timeout);
 	HTTPHeader responseHeader;
 	//Set header read timeout - waiting forever is a bad thing
 	responseHeader.setTimeout(o.pcon_timeout);
+	DataBuffer docbody;
+	docbody.setTimeout(o.proxy_timeout);
+
 	std::deque<CSPlugin*> responsescanners;
+	bool isConnect;
+	bool isHead;
+	bool waschecked = false;
+	bool isexception = false;
+	bool isbypass = false;
+	bool wasclean = false;
+	bool cachehit = false;
+	bool contentmodified = false;
+	bool pausedtoobig = false;
+	bool wasinfected = false;
+	bool wasscanned = false;
+	bool scanerror;
+
+	String url;
+	String urld;
+	String urldomain;
+
+	// 0=none,1=first line,2=all
+	int headersent = 0;
+	off_t docsize = 0;  // to store the size of the returned document for logging
+
+	std::string exceptionreason; // to hold the reason for not blocking
+	std::string clientip("192.168.0.1");  // TODO: Decide whether the client IP is necessary for this system
+	char* findResult;
 
 	try{
 		std::cout << "Reading in request header" << std::endl;
 		requestHeader.in(&ecappeer, true, true);
 
-        	//The eCAP peer is going to just dump over the response header.  Therefore, read it in.
+		isConnect = requestHeader.requestType()[0] == 'C';
+		isHead = requestHeader.requestType()[0] == 'H';
+
+		if(!isConnect && !isHead && o.fg[filtergroup]->disable_content_scan != 1) {
+			for (std::deque<Plugin *>::iterator i = o.csplugins_begin; i != o.csplugins_end; ++i)
+                	{
+                    		int csrc = ((CSPlugin*)(*i))->willScanRequest(requestHeader.getUrl(), clientuser.c_str(), filtergroup,
+                               		clientip.c_str(), false, false, isexception, isbypass);
+                    		if (csrc > 0) {
+					responsescanners.push_back((CSPlugin*)(*i));
+				}
+                    		else if (csrc < 0) {
+					syslog(LOG_ERR, "willScanRequest returned error: %d", csrc);
+				}
+                	}
+#ifdef DGDEBUG
+                std::cout << dbgPeerPort << " -Content scanners interested in response data: " << responsescanners.size() << std::endl;
+#endif
+		}
+
+		if(responsescanners.empty()) {  // No content scanning is necessary
+			ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
+			return 0;
+		} else{
+			ecappeer.writeToSocket(&FLAG_NEEDS_SCAN, 1, 0, 5, true, false);
+		}
+
+		url = requestHeader.getUrl(false, false);  // << Need to remove the 'isssl' flag from this method and put it somewhere else
+		urld = requestHeader.decode(url);
+#ifdef DGDEBUG
 		std::cout << "Reading in response header" << std::endl;
+#endif
+        	//The eCAP peer is going to just dump over the response header.  Therefore, read it in.
         	responseHeader.in(&ecappeer, true, true);  // get header from eCAP client, allowing persistency and breaking on reloadconfig
 
 		// don't even bother scan testing if the content-length header indicates the file is larger than the maximum size we'll scan
         	// - based on patch supplied by cahya (littlecahya@yahoo.de)
         	// be careful: contentLength is signed, and max_content_filecache_scan_size is unsigned
         	off_t cl = responseHeader.contentLength();
-		
-		// ~ line 1509 is where the response scanners are initially filled (e2guardian)
-		
-		
+
         	if (!responsescanners.empty())                {
             		if (cl == 0) {
 				responsescanners.clear();
@@ -560,6 +616,226 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 				responsescanners.clear();
 			} // Too large?  Not scanning.
         	}
+
+		//Re-check the response scanners now that the response header is available
+		if (!responsescanners.empty())
+                {
+#ifdef DGDEBUG
+                    std::cerr << dbgPeerPort << " -Number of response CS plugins in candidate list: " << responsescanners.size() << std::endl;
+#endif
+                    //send header to plugin here needed
+                    //also send user and group
+#ifdef DGDEBUG
+                    int j = 0;
+#endif
+                    std::deque<CSPlugin *> newplugins;
+                    for (std::deque<CSPlugin *>::iterator i = responsescanners.begin(); i != responsescanners.end(); ++i)
+                    {
+                        int csrc = (*i)->willScanData(requestHeader.getUrl(), clientuser.c_str(), filtergroup, clientip.c_str(),
+                        	false, false, false, false, responseHeader.disposition(), responseHeader.getContentType(), responseHeader.contentLength());
+#ifdef DGDEBUG
+                        std::cerr << dbgPeerPort << " -willScanData for plugin " << j << " returned: " << csrc << std::endl;
+#endif
+                        if (csrc > 0) {
+				newplugins.push_back(*i);
+			}
+                        else if (csrc < 0) {
+				// TODO Should probably block on error
+				syslog(LOG_ERR, "willScanData returned error: %d", csrc);
+			}
+#ifdef DGDEBUG
+                        j++;
+#endif
+                    }
+                    // Store only those plugins which responded positively to willScanData
+                    responsescanners.swap(newplugins);
+                }
+
+		if(!responseHeader.isRedirection() && !responseHeader.authRequired()) {
+		    bool download_exception = false;
+
+                    // Check the exception file site and MIME type lists.
+                    mimetype = responseHeader.getContentType().toCharArray();
+                    if (o.fg[filtergroup]->inExceptionFileSiteList(urld)) {
+                        download_exception = true;
+		    }
+                    else {
+                        if (o.lm.l[o.fg[filtergroup]->exception_mimetype_list]->findInList(mimetype.c_str())) {
+                            download_exception = true;
+			}
+                    }
+
+                    // Perform banned MIME type matching
+                    if (!download_exception) {
+                        // If downloads are blanket blocked, block outright.
+                        if (o.fg[filtergroup]->block_downloads) {
+                            // did not match the exception list
+                            checkme.whatIsNaughty = o.language_list.getTranslation(750);
+                            // Blanket file download is active
+                            checkme.whatIsNaughty += mimetype;
+                            checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
+                            checkme.isItNaughty = true;
+                            checkme.whatIsNaughtyCategories = "Blanket download block";
+                        }
+                        else if ((findResult = o.lm.l[o.fg[filtergroup]->banned_mimetype_list]->findInList(mimetype.c_str())) != NULL) {
+                            // matched the banned list
+                            checkme.whatIsNaughty = o.language_list.getTranslation(800);
+                            // Banned MIME Type:
+                            checkme.whatIsNaughty += findResult;
+                            checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
+                            checkme.isItNaughty = true;
+                            checkme.whatIsNaughtyCategories = "Banned MIME Type";
+                        }
+#ifdef DGDEBUG
+                        std::cout << dbgPeerPort << mimetype.length() << std::endl;
+                        std::cout << dbgPeerPort << " -:" << mimetype;
+                        std::cout << dbgPeerPort << " -:" << std::endl;
+#endif
+                    }
+
+                    // Perform extension matching - if not already matched the exception MIME or site lists
+                    if (!download_exception) {
+                        // Can't ban file extensions of URLs that just redirect
+                        String tempurl(urld);
+                        String tempdispos(responseHeader.disposition());
+                        unsigned int elist, blist;
+                        elist = o.fg[filtergroup]->exception_extension_list;
+                        blist = o.fg[filtergroup]->banned_extension_list;
+                        char* e = NULL;
+                        char* b = NULL;
+                        if (tempdispos.length() > 1) {
+                            // dispos filename must take presidense
+#ifdef DGDEBUG
+                            std::cout << dbgPeerPort << " -Disposition filename:" << tempdispos << ":" << std::endl;
+#endif
+                            // The function expects a url so we have to
+                            // generate a pseudo one.
+                            tempdispos = "http://foo.bar/" + tempdispos;
+                            e = o.fg[filtergroup]->inExtensionList(elist, tempdispos);
+                            // Only need to check banned list if not blanket blocking
+                            if ((e == NULL) && !(o.fg[filtergroup]->block_downloads)) {
+                                b = o.fg[filtergroup]->inExtensionList(blist, tempdispos);
+			    }
+                        } else {
+                            if (!tempurl.contains("?")) {
+                                e = o.fg[filtergroup]->inExtensionList(elist, tempurl);
+                                if ((e == NULL) && !(o.fg[filtergroup]->block_downloads)) {
+                                    b = o.fg[filtergroup]->inExtensionList(blist, tempurl);
+				}
+                            }
+                            else if (String(mimetype.c_str()).contains("application/")) {
+                                while (tempurl.endsWith("?")) {
+                                    tempurl.chop();
+                                }
+                                while (tempurl.contains("/"))  	// no slash no url
+                                {
+                                    e = o.fg[filtergroup]->inExtensionList(elist, tempurl);
+                                    if (e != NULL) {
+                                        break;
+				    }
+                                    if (!(o.fg[filtergroup]->block_downloads)) {
+                                        b = o.fg[filtergroup]->inExtensionList(blist, tempurl);
+				    }
+                                    while (tempurl.contains("/") && !tempurl.endsWith("?")) {
+                                        tempurl.chop();
+                                    }
+                                    tempurl.chop();  // get rid of the ?
+                                }
+                            }
+                        }
+
+                        // If downloads are blanket blocked, block unless matched the exception list.
+                        // If downloads are not blanket blocked, block if matched the banned list and not the exception list.
+                        if (o.fg[filtergroup]->block_downloads && (e == NULL)) {
+                            // did not match the exception list
+                            checkme.whatIsNaughty = o.language_list.getTranslation(751);
+                            // Blanket file download is active
+                            checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
+                            checkme.isItNaughty = true;
+                            checkme.whatIsNaughtyCategories = "Blanket download block";
+                        }
+                        else if (!(o.fg[filtergroup]->block_downloads) && (e == NULL) && (b != NULL)) {
+                            // matched the banned list
+                            checkme.whatIsNaughty = o.language_list.getTranslation(900);
+                            // Banned extension:
+                            checkme.whatIsNaughty += b;
+                            checkme.whatIsNaughtyLog = checkme.whatIsNaughty;
+                            checkme.isItNaughty = true;
+                            checkme.whatIsNaughtyCategories = "Banned extension";
+                        }
+                        else if (e != NULL) {
+                            // intention is to match either/or of the MIME & extension lists
+                            // so if it gets this far, un-naughty it (may have been naughtied by the MIME type list)
+                            checkme.isItNaughty = false;
+                        }
+                    }
+		}
+
+		//Check response body if the mimetype check didn't come back naughty
+		if (!checkme.isItNaughty && (cl != 0) && !isHead)  {
+                    if (((responseHeader.isContentType("text") || responseHeader.isContentType("-"))) || !responsescanners.empty()) {
+                        // don't search the cache if scan_clean_cache disabled & runav true (won't have been cached)
+                        // also don't search cache for auth required headers (same reason)
+                        // checkme: does not search the cache if scan_clean_cache is disabled break the fancy DM's bypass stuff?
+                        // probably, since it uses a "magic" status code in the cache; easier than coding yet another hash type.
+                        if (o.url_cache_number > 0 && (o.scan_clean_cache || responsescanners.empty()) && !responseHeader.authRequired()) {
+                            if (wasClean(requestHeader, urld, filtergroup)) {
+                                wasclean = true;
+                                cachehit = true;
+                                responsescanners.clear();
+#ifdef DGDEBUG
+                                std::cout << dbgPeerPort << " -url was clean skipping content and AV checking" << std::endl;
+#endif
+                            }
+                        }
+                        // despite the debug note above, we do still go through contentFilter for cached non-exception HTML,
+                        // as content replacement rules need to be applied.
+                        waschecked = true;
+                        if (!responsescanners.empty())                        {
+#ifdef DGDEBUG
+                            std::cout << dbgPeerPort << " -Filtering with expectation of a possible csmessage" << std::endl;
+#endif
+                            String csmessage;
+                            contentFilter(&responseHeader, &requestHeader, &docbody, &ecappeer, &ecappeer, &headersent, &pausedtoobig,
+                                          &docsize, &checkme, wasclean, filtergroup, responsescanners, &clientuser, &clientip,
+                                          &wasinfected, &wasscanned, isbypass, urld, urldomain, &scanerror, contentmodified, &csmessage);
+                            if (csmessage.length() > 0)                            {
+#ifdef DGDEBUG
+                                std::cout << dbgPeerPort << " -csmessage found: " << csmessage << std::endl;
+#endif
+                                exceptionreason = csmessage.toCharArray();
+                            }
+                        }                        else                        {
+                            contentFilter(&responseHeader, &requestHeader, &docbody, &ecappeer, &ecappeer, &headersent, &pausedtoobig,
+                                          &docsize, &checkme, wasclean, filtergroup, responsescanners, &clientuser, &clientip,
+                                          &wasinfected, &wasscanned, isbypass, urld, urldomain, &scanerror, contentmodified, NULL);
+                        }
+                    }
+                }
+
+		if(!isexception && checkme.isException) {
+			isexception = true;
+			exceptionreason = checkme.whatIsNaughtyLog;
+		}
+
+		if (o.url_cache_number > 0) {
+                	// add to cache if: wasn't already there, wasn't naughty, wasn't allowed by bypass/soft block, was text,
+                	// was virus scanned and scan_clean_cache is enabled, was a GET request,
+                	// and response was not a set of auth required headers (we haven't checked
+                	// the actual content, just the proxy's auth error page!).
+                	// also don't add "not modified" responses to the cache - if someone adds
+                	// an entry and does a soft restart, we don't want the site to end up in
+                	// the clean cache because someone who's already been to it hits refresh.
+                	if (!wasclean && !checkme.isItNaughty
+                        	&& (responseHeader.isContentType("text") || (wasscanned && o.scan_clean_cache))
+                        	&& (requestHeader.requestType() == "GET") && (responseHeader.returnCode() == 200)
+                        	&& urld.length() < 2000)
+                	{
+             			addToClean(urld, filtergroup);
+                	}
+                }
+
+		//If naughty then block (WIP)
 
 		/*
 		Based on the header, determine whether the response body needs to be scanned, blocked, or allowed:
@@ -585,8 +861,8 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
     }
 
 	//Currently just sending back the 'use virgin' signal for testing
-    ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
-    return 0;
+	ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
+	return 0;
 }
 
 // pass data between proxy and client, filtering as we go.
@@ -4020,7 +4296,7 @@ bool ConnectionHandler::denyAccess(Socket * peerconn, Socket * proxysock, HTTPHe
 
 // do content scanning (AV filtering) and naughty filtering
 void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header, DataBuffer *docbody,
-                                      Socket *proxysock, Socket *peerconn, int *headersent, bool *pausedtoobig, off_t *docsize, NaughtyFilter *checkme,
+                                      BaseSocket *proxysock, BaseSocket *peerconn, int *headersent, bool *pausedtoobig, off_t *docsize, NaughtyFilter *checkme,
                                       bool wasclean, int filtergroup, std::deque<CSPlugin *> &responsescanners,
                                       std::string *clientuser, std::string *clientip, bool *wasinfected, bool *wasscanned, bool isbypass,
                                       String &url, String &domain, bool *scanerror, bool &contentmodified, String *csmessage)

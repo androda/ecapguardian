@@ -45,14 +45,14 @@ public:
     // - this allows us to re-open the proxy connection on pconns if squid's end has
     // timed out but the client's end hasn't. not much use with NTLM, since squid
     // will throw a 407 and restart negotiation, but works well with basic & others.
-    void out(Socket *peersock, Socket *sock, int sendflag, bool reconnect = false) throw(std::exception);
-	
+    void out(BaseSocket *peersock, BaseSocket *sock, int sendflag, bool reconnect = false) throw(std::exception);
+
 	// Sends the headers out over the specified socket
 	void out(BaseSocket *ecapSock) throw(std::exception);
 
     // discard remainder of POST data
     // amount to discard can be passed in, or will default to contentLength()
-    void discard(Socket *sock, off_t cl = -2);
+    void discard(BaseSocket *sock, off_t cl = -2);
 
     // header value and type checks
 
