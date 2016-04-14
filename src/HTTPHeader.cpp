@@ -1044,7 +1044,10 @@ void HTTPHeader::checkheader(bool allowpersistent)
         }
         else
         {
-            (*pproxyconnection) = "Connection: keep-alive\r";
+#ifdef DGDEBUG
+            std::cout << "CheckHeader: pproxyconnection = Connection: keep-alive" << std::endl;
+#endif
+            (*pproxyconnection) = String("Connection: keep-alive\r");
         }
     }
     else
@@ -1059,7 +1062,10 @@ void HTTPHeader::checkheader(bool allowpersistent)
         }
         else
         {
-            (*pproxyconnection) = "Connection: close\r";
+#ifdef DGDEBUG
+            std::cout << "CheckHeader: pproxyconnection = Connection: close" << std::endl;
+#endif
+            (*pproxyconnection) = String("Connection: close\r");
         }
     }
 
@@ -1941,13 +1947,16 @@ void HTTPHeader::in(BaseSocket * sock, bool allowpersistent, bool honour_reloadc
     line = "----";  // so we get past the first while
     bool firsttime = true;
     bool discard = false;
-    while (line.length() > 3 || discard)  	
+    while (line.length() > 3 || discard)
     {
 		// loop until the stream is failed or we get to the end of the header (a line by itself)
         // get a line of header from the stream on the first time round the loop, honour the 
 		// reloadconfig flag if desired - this lets us break when waiting for the next request 
 		// on a pconn, but not during receipt of a request in progress.
         bool truncated = false;
+#ifdef DGDEBUG
+	std::cout << "Reading in header line" << std::endl;
+#endif
         sock->getLine(buff, 32768, timeout, firsttime ? honour_reloadconfig : false, NULL, &truncated);
         if (truncated){
             throw std::exception();
@@ -1955,12 +1964,14 @@ void HTTPHeader::in(BaseSocket * sock, bool allowpersistent, bool honour_reloadc
         // getline will throw an exception if there is an error which will
         // only be caught by HandleConnection()
         line = buff;  // convert the line to a String
+#ifdef DGDEBUG
+	std::cout << "Header line was: " << line.c_str() << std::endl;
+#endif
         // ignore crap left in buffer from old pconns (in particular, the IE "extra CRLF after POST" bug)
         discard = false;
         if (not (firsttime && line.length() <= 3)){
             header.push_back(line);  // stick the line in the deque that holds the header
-		}
-        else        {
+	} else {
             discard = true;
 #ifdef DGDEBUG
             std::cout << "Discarding unwanted bytes at head of request (pconn closed or IE multipart POST bug)" << std::endl;

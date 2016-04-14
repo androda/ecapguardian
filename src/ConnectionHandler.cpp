@@ -20,6 +20,7 @@
 #include <syslog.h>
 #include <cerrno>
 #include <cstdio>
+#include <stdio.h>
 #include <ctime>
 #include <algorithm>
 #include <netdb.h>
@@ -549,6 +550,7 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 	bool contentmodified = false;
 	bool pausedtoobig = false;
 	bool wasinfected = false;
+	bool shouldScan = false;
 	bool wasscanned = false;
 	bool scanerror;
 
@@ -559,41 +561,37 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 	// 0=none,1=first line,2=all
 	int headersent = 0;
 	off_t docsize = 0;  // to store the size of the returned document for logging
+	int read = 0;
 
 	std::string exceptionreason; // to hold the reason for not blocking
 	std::string clientip("192.168.0.1");  // TODO: Decide whether the client IP is necessary for this system
 	char* findResult;
-
+	char ack[1];
 	try{
 		std::cout << "Reading in request header" << std::endl;
 		requestHeader.in(&ecappeer, true, true);
 
+		std::cout << "Finished reading response header" << std::endl;
 		isConnect = requestHeader.requestType()[0] == 'C';
 		isHead = requestHeader.requestType()[0] == 'H';
 
-		if(!isConnect && !isHead && o.fg[filtergroup]->disable_content_scan != 1) {
-			for (std::deque<Plugin *>::iterator i = o.csplugins_begin; i != o.csplugins_end; ++i)
-                	{
-                    		int csrc = ((CSPlugin*)(*i))->willScanRequest(requestHeader.getUrl(), clientuser.c_str(), filtergroup,
-                               		clientip.c_str(), false, false, isexception, isbypass);
-                    		if (csrc > 0) {
-					responsescanners.push_back((CSPlugin*)(*i));
-				}
-                    		else if (csrc < 0) {
-					syslog(LOG_ERR, "willScanRequest returned error: %d", csrc);
-				}
-                	}
+//		if(!isConnect && !isHead && o.fg[filtergroup]->disable_content_scan != 1) {
+//			for (std::deque<Plugin *>::iterator i = o.csplugins_begin; i != o.csplugins_end; ++i)
+//                	{
+//				std::cout << "Checking CSPlugin_willScanRequest" << std::endl;
+//                    		int csrc = ((CSPlugin*)(*i))->willScanRequest(requestHeader.getUrl(), clientuser.c_str(), filtergroup,
+//                               		clientip.c_str(), false, false, isexception, isbypass);
+//                    		if (csrc > 0) {
+//					responsescanners.push_back((CSPlugin*)(*i));
+//				}
+//                    		else if (csrc < 0) {
+//					syslog(LOG_ERR, "willScanRequest returned error: %d", csrc);
+//				}
+//                	}
 #ifdef DGDEBUG
-                std::cout << dbgPeerPort << " -Content scanners interested in response data: " << responsescanners.size() << std::endl;
+//	                std::cout << dbgPeerPort << " -Content scanners interested in response data: " << responsescanners.size() << std::endl;
 #endif
-		}
-
-		if(responsescanners.empty()) {  // No content scanning is necessary
-			ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
-			return 0;
-		} else{
-			ecappeer.writeToSocket(&FLAG_NEEDS_SCAN, 1, 0, 5, true, false);
-		}
+//		}
 
 		url = requestHeader.getUrl(false, false);  // << Need to remove the 'isssl' flag from this method and put it somewhere else
 		urld = requestHeader.decode(url);
@@ -603,12 +601,15 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
         	//The eCAP peer is going to just dump over the response header.  Therefore, read it in.
         	responseHeader.in(&ecappeer, true, true);  // get header from eCAP client, allowing persistency and breaking on reloadconfig
 
+#ifdef DEBUG
+		std::cout << "After reading in response header" << std::endl;
+#endif
+
 		// don't even bother scan testing if the content-length header indicates the file is larger than the maximum size we'll scan
         	// - based on patch supplied by cahya (littlecahya@yahoo.de)
         	// be careful: contentLength is signed, and max_content_filecache_scan_size is unsigned
         	off_t cl = responseHeader.contentLength();
-
-        	if (!responsescanners.empty())                {
+        	if (!responsescanners.empty()) {
             		if (cl == 0) {
 				responsescanners.clear();
 			} // Empty response need not be scanned
@@ -616,6 +617,76 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 				responsescanners.clear();
 			} // Too large?  Not scanning.
         	}
+
+		shouldScan = (cl != 0) && !isHead &&
+				((responseHeader.isContentType("text") || responseHeader.isContentType("-")) || !responsescanners.empty());
+
+//#ifdef DGDEBUG
+//		std::cout << "Flushing eCAP socket" << std::endl;
+//#endif
+//		//fdopen the socket
+//		FILE* socketFile = fdopen(ecappeer.sck, "r+");
+//		//fflush any extraneous data from the ecap adapter
+//		int flushed = fflush(socketFile);
+		char response;
+//#ifdef DGDEBUG
+//		std::cout << "eCAP socket flushed, result was : " << flushed << std::endl;
+//#endif
+
+//		char singleCharBuffer[1];
+//		for(int sci = 0; sci < 10; sci++) {
+//			std::cout << "Reading from socket, try #" << sci << std::endl;
+//			try{
+//			int scRead = ecappeer.readFromSocket(singleCharBuffer, 1, 0, 5, true, false);
+//			if(scRead == -1) {
+//				break;
+//			} else{
+//				std::cout << "Read " << scRead << "chars from socket" << std::endl;
+//				std::cout << "Char was " << static_cast<int>(singleCharBuffer[0]) << std::endl;
+//			}
+//			} catch (std::exception e) {
+//				std::cout << "Exception when trying to clear out the ecap socket" << std::endl;
+//			}
+//		}
+
+#ifdef DEBUG
+		std::cout << "ShouldScan: " << schouldScan << std::endl;
+#endif
+		if(shouldScan) {
+			ecappeer.writeToSocket(&FLAG_NEEDS_SCAN, 1, 0, 5, true, false);
+#ifdef DGDEBUG
+			std::cout << "Waiting for FLAG_MSG_RECVD after sending FLAG_NEEDS_SCAN" << std::endl;
+#endif
+			read = ecappeer.readFromSocketn(ack, 1, 0, 5);
+			response = ack[0];
+			if(response != FLAG_MSG_RECVD) {
+				std::string error;
+				error.append("Received invalid FLAG_MSG_RECVD in response to FLAG_NEEDS_SCAN : '");
+				error += response;
+				error.append("', read ");
+				error.append(std::to_string(read));
+				error.append(" chars");
+				throw std::runtime_error(error);
+			}
+		} else {
+			ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
+#ifdef DGDEBUG
+			std::cout << "Waiting for FLAG_MSG_RECVD after sending FLAG_USE_VIRGIN" << std::endl;
+#endif
+			ecappeer.readFromSocketn(ack, 1, 0, 5);
+			response = ack[0];
+			if(response == FLAG_MSG_RECVD) {
+				return 0;
+			} else {
+				std::string error;
+				error.append("Received invalid FLAG_MSG_RECVD in response to FLAG_USE_VIRGIN : '");
+				error += response;
+				error.append("', read ");
+				error.append(std::to_string(read));
+				error.append(" chars");
+				throw std::runtime_error(error);
+			}
+		}
 
 		//Re-check the response scanners now that the response header is available
 		if (!responsescanners.empty())
@@ -771,8 +842,11 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                     }
 		}
 
+#ifdef DGDEBUG
+		std::cout << "shouldScan: " << shouldScan << std::endl;
+#endif
 		//Check response body if the mimetype check didn't come back naughty
-		if (!checkme.isItNaughty && (cl != 0) && !isHead)  {
+                if (!checkme.isItNaughty && (cl != 0) && !isHead)  {
                     if (((responseHeader.isContentType("text") || responseHeader.isContentType("-"))) || !responsescanners.empty()) {
                         // don't search the cache if scan_clean_cache disabled & runav true (won't have been cached)
                         // also don't search cache for auth required headers (same reason)
@@ -791,7 +865,7 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                         // despite the debug note above, we do still go through contentFilter for cached non-exception HTML,
                         // as content replacement rules need to be applied.
                         waschecked = true;
-                        if (!responsescanners.empty())                        {
+                        if (!responsescanners.empty()) {
 #ifdef DGDEBUG
                             std::cout << dbgPeerPort << " -Filtering with expectation of a possible csmessage" << std::endl;
 #endif
@@ -799,13 +873,16 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                             contentFilter(&responseHeader, &requestHeader, &docbody, &ecappeer, &ecappeer, &headersent, &pausedtoobig,
                                           &docsize, &checkme, wasclean, filtergroup, responsescanners, &clientuser, &clientip,
                                           &wasinfected, &wasscanned, isbypass, urld, urldomain, &scanerror, contentmodified, &csmessage);
-                            if (csmessage.length() > 0)                            {
+                            if (csmessage.length() > 0) {
 #ifdef DGDEBUG
                                 std::cout << dbgPeerPort << " -csmessage found: " << csmessage << std::endl;
 #endif
                                 exceptionreason = csmessage.toCharArray();
                             }
-                        }                        else                        {
+                        } else {
+#ifdef DGDEBUG
+			    std::cout << "-Filtering with no expectation of a csmessage" << std::endl;
+#endif
                             contentFilter(&responseHeader, &requestHeader, &docbody, &ecappeer, &ecappeer, &headersent, &pausedtoobig,
                                           &docsize, &checkme, wasclean, filtergroup, responsescanners, &clientuser, &clientip,
                                           &wasinfected, &wasscanned, isbypass, urld, urldomain, &scanerror, contentmodified, NULL);
@@ -862,7 +939,15 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 
 	//Currently just sending back the 'use virgin' signal for testing
 	ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
-	return 0;
+#ifdef DGDEBUG
+			std::cout << "Waiting for FLAG_MSG_RECVD after sending catchall FLAG_USE_VIRGIN" << std::endl;
+#endif
+	ecappeer.readFromSocketn(ack, 1, 0, 5);
+	if(ack[0] == FLAG_MSG_RECVD) {
+		return 0;
+	} else {
+		throw std::runtime_error("Received invalid FLAG_MSG_RECVD in response to catchall FLAG_USE_VIRGIN : " + ack[0]);
+	}
 }
 
 // pass data between proxy and client, filtering as we go.

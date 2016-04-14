@@ -72,14 +72,14 @@ public:
     char buffer[1024];
     int buffstart;
     int bufflen;
+    // socket FD
+    int sck;
 
 protected:
     // socket-wide timeout (is this actually used?)
     int timeout;
     // length of address of other end of socket (e.g. size of sockaddr_in or sockaddr_un)
     socklen_t peer_adr_length;
-    // socket FD
-    int sck;
 
     // constructor - sets default values. override this if you actually wish to create a default socket.
     BaseSocket();
