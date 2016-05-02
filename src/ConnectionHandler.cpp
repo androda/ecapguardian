@@ -310,7 +310,7 @@ off_t ConnectionHandler::sendFile(Socket * peerconn, String & filename, String &
             std::cout << dbgPeerPort << " -error reading send file so throwing exception" << std::endl;
 #endif
             delete[]buffer;
-            throw std::exception();
+            throw std::runtime_error("::sendFile - error reading send file");
         }
         if (rc == 0)        {
 #ifdef DGDEBUG
@@ -321,7 +321,7 @@ off_t ConnectionHandler::sendFile(Socket * peerconn, String & filename, String &
         // as it's cached to disk the buffer must be reasonably big
         if (!peerconn->writeToSocket(buffer, rc, 0, 100))        {
             delete[]buffer;
-            throw std::exception();
+            throw std::runtime_error("::sendFile - could not write to peerconn");
         }
         sent += rc;
 #ifdef DGDEBUG
@@ -391,10 +391,10 @@ int ConnectionHandler::handleEcapReqmod(UDSocket &ecappeer){
         logurl = requestHeader.getLogUrl(false, false);  //No MITM here - Squid does that
         urld = requestHeader.decode(url);
         urldomain = url.getHostname();
-#ifdef DGDEBUG
+/*#ifdef DGDEBUG
         std::cout << "requestType|url|logUrl|urld|urldomain: " << requestHeader.requestType() << '|'
             << url << '|' << logurl << '|' << urld << '|' << urldomain << std::endl;
-#endif
+#endif*/
 
         //A CONNECT request should either be ignored
         //OR check the destination and block if necessary
@@ -407,9 +407,9 @@ int ConnectionHandler::handleEcapReqmod(UDSocket &ecappeer){
         // checks for bad URLs to prevent security holes/domain obfuscation.
         if (requestHeader.malformedURL(url))
         {
-#ifdef DGDEBUG
+/*#ifdef DGDEBUG
             std::cout << "Malformed URL: " << url << std::endl;
-#endif
+#endif*/
             std::string badReq("400 Bad Request");
             std::string explan("Your browser made an invalid request, which cannot be fulfilled");
             //Block page signal
@@ -418,18 +418,18 @@ int ConnectionHandler::handleEcapReqmod(UDSocket &ecappeer){
             ecappeer.writeToSocket(blockHeaders.c_str(), blockHeaders.length(), 0, 0);
             //Read back msg recvd signal
             rc = ecappeer.readFromSocket(rBuf, 1, 0, 10);
-#ifdef DGDEBUG
+/*#ifdef DGDEBUG
             std::cout << "Received from adapter: " << rBuf[0] << std::endl;
-#endif
+#endif*/
             if(rBuf[0] == FLAG_MSG_RECVD){
                 o.fg[filtergroup]->getHTMLTemplate()->display(&ecappeer, &url, badReq,
                     explan, empty, &empty, &empty, &empty, 0, emptyS);
             } else{
-#ifdef DGDEBUG
+/*#ifdef DGDEBUG
                 std::cout << "eCAP adapter did not return expected signal" << std::endl;
                 std::cout << "Malformed URL, but did not receive 'r'. Recvd "
                     << rBuf[0] << std::endl;
-#endif
+#endif*/
             }
             //Success
             return 0;
@@ -445,18 +445,18 @@ int ConnectionHandler::handleEcapReqmod(UDSocket &ecappeer){
 
         requestChecks(&requestHeader, &checkme, &urld, &url, 0);
         if(checkme.isItNaughty){
-#ifdef DGDEBUG
+/*#ifdef DGDEBUG
             std::cout << "Was naughty, blocked: " << checkme.whatIsNaughty << '|'
                  << checkme.whatIsNaughtyCategories << std::endl;
-#endif
+#endif*/
             ecappeer.writeToSocket(&FLAG_BLOCK, 1, 0, 0);
             //Blockpage headers
             ecappeer.writeToSocket(blockHeaders.c_str(), blockHeaders.length(), 0, 0);
             //Read back msg recvd signal
             rc = ecappeer.readFromSocket(rBuf, 1, 0, 10);
-#ifdef DGDEBUG
+/*#ifdef DGDEBUG
             std::cout << "Received from adapter: " << rBuf[0] << std::endl;
-#endif
+#endif*/
             if(rBuf[0] == FLAG_MSG_RECVD){
                 o.fg[filtergroup]->getHTMLTemplate()->display(&ecappeer, &url,
                     checkme.whatIsNaughty, checkme.whatIsNaughtyCategories,
@@ -465,7 +465,7 @@ int ConnectionHandler::handleEcapReqmod(UDSocket &ecappeer){
             return 0;
         }
 
-#ifdef DGDEBUG
+/*#ifdef DGDEBUG
         std::cout << "request URL/Header modified?: " << urlModified << "/" << headerModified << std::endl;
         url = requestHeader.getUrl(false, false);  //No MITM here - Squid does that
         logurl = requestHeader.getLogUrl(false, false);  //No MITM here - Squid does that
@@ -474,29 +474,28 @@ int ConnectionHandler::handleEcapReqmod(UDSocket &ecappeer){
         std::cout << "After URL / Header modifications" << std::endl;
         std::cout << "requestType|url|logUrl|urld|urldomain: " << requestHeader.requestType() << '|'
             << url << '|' << logurl << '|' << urld << '|' << urldomain << std::endl;
-#endif
+#endif*/
         if(urlModified || headerModified){
-#ifdef DGDEBUG
+/*#ifdef DGDEBUG
             std::cout << "Modifying request, getUrl() = " << requestHeader.getUrl() << std::endl;
             std::cout << "Modifying request, header.front() = " << requestHeader.header.front() << std::endl;
-#endif
-            ecappeer.writeToSocket(&FLAG_MODIFY, 1, 0, 0);
+#endif*/            ecappeer.writeToSocket(&FLAG_MODIFY, 1, 0, 0);
             requestHeader.out(&ecappeer);
             return 0;
         }
 
     } catch (postfilter_exception &e){
-#ifdef DGDEBUG
+/*#ifdef DGDEBUG
         std::cerr << dbgPeerPort << " -connection handler caught a POST filtering exception: " << e.what() << std::endl;
-#endif
+#endif*/
         syslog(LOG_ERR, "POST filtering exception: %s", e.what());
         //No need to call ecappeer.close() before returning.
         //The destructor for ecappeer is called up in FatController, which auto-closes the handle
         return 0;
     } catch (std::exception & e)    {
-#ifdef DGDEBUG
+/*#ifdef DGDEBUG
         std::cerr << dbgPeerPort << " -connection handler caught an exception: " << e.what() << std::endl;
-#endif
+#endif*/
         //No need to call ecappeer.close() before returning.
         //The destructor for ecappeer is called up in FatController, which auto-closes the handle
         return 0;
@@ -662,7 +661,7 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 			if(response != FLAG_MSG_RECVD) {
 				std::string error;
 				error.append("Received invalid FLAG_MSG_RECVD in response to FLAG_NEEDS_SCAN : '");
-				error += response;
+				error.append(std::string(1, response));
 				error.append("', read ");
 				error.append(std::to_string(read));
 				error.append(" chars");
@@ -680,7 +679,7 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 			} else {
 				std::string error;
 				error.append("Received invalid FLAG_MSG_RECVD in response to FLAG_USE_VIRGIN : '");
-				error += response;
+				error.append(std::string(1, response));
 				error.append("', read ");
 				error.append(std::to_string(read));
 				error.append(" chars");
@@ -946,7 +945,7 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 	if(ack[0] == FLAG_MSG_RECVD) {
 		return 0;
 	} else {
-		throw std::runtime_error("Received invalid FLAG_MSG_RECVD in response to catchall FLAG_USE_VIRGIN : " + ack[0]);
+		throw std::runtime_error("Received invalid FLAG_MSG_RECVD in response to catchall FLAG_USE_VIRGIN : " + std::string(1, ack[0]));
 	}
 }
 

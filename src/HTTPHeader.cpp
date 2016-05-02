@@ -1828,7 +1828,7 @@ void HTTPHeader::out(BaseSocket * peersock, BaseSocket * sock, int sendflag, boo
             // first reconnect loop - send first line
             while (true)            {
                 if (!sock->writeToSocket(l.toCharArray(), l.length(), 0, timeout))                {
-                    throw std::exception();
+                    throw std::runtime_error("HTTPHeader::out - FRL could not write line: " + l);
                 }
                 // if we got here, we succeeded, so break the reconnect loop
                 break;
@@ -1856,7 +1856,7 @@ void HTTPHeader::out(BaseSocket * peersock, BaseSocket * sock, int sendflag, boo
         // need exception for bad write
 
         if (!sock->writeToSocket(l.toCharArray(), l.length(), 0, timeout))        {
-            throw std::exception();
+            throw std::runtime_error("HTTPHeader::out - SRL could not write line: " + l);
         }
         // if we got here, we succeeded, so break the reconnect loop
         break;
@@ -1872,7 +1872,7 @@ void HTTPHeader::out(BaseSocket * peersock, BaseSocket * sock, int sendflag, boo
 #ifdef DGDEBUG
             std::cout << "Could not send POST data!" << std::endl;
 #endif
-            throw std::exception();
+            throw std::runtime_error("HTTPHeader::out - could not send POST data");
         }
     }
     else if ((peersock != NULL) && (!requestType().startsWith("HTTP")) && (pcontentlength != NULL))    {
@@ -1936,10 +1936,9 @@ void HTTPHeader::discard(BaseSocket *sock, off_t cl)
 
 void HTTPHeader::in(BaseSocket * sock, bool allowpersistent, bool honour_reloadconfig)
 {
-    if (dirty)
-        reset();
+    if (dirty) { reset(); }
     dirty = true;
-
+    int rc;
     // the RFCs don't specify a max header line length so this should be
     // dynamic really.  Pointed out (well reminded actually) by Daniel Robbins
     char buff[32768];  // setup a buffer to hold the incomming HTTP line
@@ -1957,15 +1956,15 @@ void HTTPHeader::in(BaseSocket * sock, bool allowpersistent, bool honour_reloadc
 #ifdef DGDEBUG
 	std::cout << "Reading in header line" << std::endl;
 #endif
-        sock->getLine(buff, 32768, timeout, firsttime ? honour_reloadconfig : false, NULL, &truncated);
+        rc = sock->getLine(buff, 32768, timeout, firsttime ? honour_reloadconfig : false, NULL, &truncated);
         if (truncated){
-            throw std::exception();
+            throw std::runtime_error("HTTPHeader::in - was truncated, rc=" + std::to_string(rc));
         }
         // getline will throw an exception if there is an error which will
         // only be caught by HandleConnection()
         line = buff;  // convert the line to a String
 #ifdef DGDEBUG
-	std::cout << "Header line was: " << line.c_str() << std::endl;
+	std::cout << "rc=" << rc << ". Header line was: " << line.c_str() << std::endl;
 #endif
         // ignore crap left in buffer from old pconns (in particular, the IE "extra CRLF after POST" bug)
         discard = false;
@@ -1981,8 +1980,8 @@ void HTTPHeader::in(BaseSocket * sock, bool allowpersistent, bool honour_reloadc
     }
     header.pop_back();  // remove the final blank line of a header
     if (header.size() == 0){
-        throw std::exception();
-	}
+        throw std::runtime_error("HTTPHeader::in - header deque is empty");
+    }
     checkheader(allowpersistent);  // sort out a few bits in the header
 }
 
