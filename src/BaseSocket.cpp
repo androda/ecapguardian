@@ -62,12 +62,24 @@ int selectEINTR(int numfds, fd_set * readfds, fd_set * writefds, fd_set * except
     timeval timeoutcopy;
     while (true)    // using the while as a restart point with continue
     {
+#ifdef DGDEBUG
+    std::cout << getpid() << "In selectEINTR loop" << std::endl;
+#endif
         if (timeout != NULL)        {
+#ifdef DGDEBUG
+            std::cout << getpid() << "In selectEINTR : timeout not null" << std::endl;
+#endif
             gettimeofday(&entrytime, NULL);
             timeoutcopy = *timeout;
             rc = select(numfds, readfds, writefds, exceptfds, &timeoutcopy);
+#ifdef DGDEBUG
+            std::cout << getpid() << "In selectEINTR : after select" << std::endl;
+#endif
             // explicitly modify the timeout if the OS hasn't done this for us
             if (timeoutcopy.tv_sec == timeout->tv_sec && timeoutcopy.tv_usec == timeout->tv_usec)            {
+#ifdef DGDEBUG
+                std::cout << getpid() << "In selectEINTR : modifying timeout" << std::endl;
+#endif
                 gettimeofday(&exittime, NULL);
                 // calculate time spent sleeping this iteration
                 dgtimersub(&exittime, &entrytime, &elapsedtime);
@@ -89,6 +101,9 @@ int selectEINTR(int numfds, fd_set * readfds, fd_set * writefds, fd_set * except
             rc = select(numfds, readfds, writefds, exceptfds, NULL);
         if (rc < 0)        {
             if (errno == EINTR && (honour_reloadconfig? !reloadconfig : true))            {
+#ifdef DGDEBUG
+                std::cout << getpid() << "In selectEINTR : errno == EINTR" << std::endl;
+#endif
                 continue;  // was interupted by a signal so restart
             }
         }
@@ -192,8 +207,12 @@ int BaseSocket::getTimeout()
 // non-blocking check to see if there is data waiting on socket
 bool BaseSocket::checkForInput()
 {
-    if ((bufflen - buffstart) > 0)
+#ifdef DGDEBUG
+    std::cout << "BaseSocket::checkForInput: starting for sck:" << sck << std::endl;
+#endif
+    if ((bufflen - buffstart) > 0) {
         return true;
+    }
 
     fd_set fdSet;
     FD_ZERO(&fdSet);  // clear the set
@@ -215,10 +234,12 @@ void BaseSocket::checkForInput(int timeout, bool honour_reloadconfig) throw(std:
 #ifdef DGDEBUG
     std::cout << "BaseSocket::checkForInput: starting for sck:" << sck << std::endl;
 #endif
-
-    if ((bufflen - buffstart) > 0)
+    if ((bufflen - buffstart) > 0) {
+#ifdef DGDEBUG
+        std::cout << "BaseSocket::checkForInput(timeout, honour_reloadconfig) : (bufflen - buffstart) > 0" << std::endl;
+#endif
         return;
-
+    }
     // blocks if socket blocking
     // until timeout
     fd_set fdSet;
@@ -421,6 +442,9 @@ int BaseSocket::readFromSocketn(char *buff, int len, unsigned int flags, int tim
     }
 
     while (cnt > 0)    {
+#ifdef DGDEBUG
+	std::cout << "Checking for input on socket" << std::endl;
+#endif
         try        {
             checkForInput(timeout);  // throws exception on error or timeout
         }
@@ -490,4 +514,5 @@ int BaseSocket::readFromSocket(char *buff, int len, unsigned int flags, int time
 
     return rc + tocopy;
 }
+
 

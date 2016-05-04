@@ -1963,9 +1963,6 @@ void HTTPHeader::in(BaseSocket * sock, bool allowpersistent, bool honour_reloadc
         // getline will throw an exception if there is an error which will
         // only be caught by HandleConnection()
         line = buff;  // convert the line to a String
-#ifdef DGDEBUG
-	std::cout << "rc=" << rc << ". Header line was: " << line.c_str() << std::endl;
-#endif
         // ignore crap left in buffer from old pconns (in particular, the IE "extra CRLF after POST" bug)
         discard = false;
         if (not (firsttime && line.length() <= 3)){

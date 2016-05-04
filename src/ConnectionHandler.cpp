@@ -382,7 +382,9 @@ int ConnectionHandler::handleEcapReqmod(UDSocket &ecappeer){
     String emptyS(empty.c_str());
 
     const char FLAG_USE_VIRGIN = 'v';
-
+#ifdef DGDEBUG
+	std::cout << getpid() << "REQMOD filtergroup=" << filtergroup << std::endl;
+#endif
     try{
         //The eCAP peer is going to just dump over the request header.  Therefore, read it in.
         requestHeader.in(&ecappeer, true, true);  // get header from eCAP client, allowing persistency and breaking on reloadconfig
@@ -552,6 +554,7 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 	bool shouldScan = false;
 	bool wasscanned = false;
 	bool scanerror;
+	filtergroup = 0;
 
 	String url;
 	String urld;
@@ -567,10 +570,10 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 	char* findResult;
 	char ack[1];
 	try{
-		std::cout << "Reading in request header" << std::endl;
+		std::cout << getpid() << "Reading in request header" << std::endl;
 		requestHeader.in(&ecappeer, true, true);
 
-		std::cout << "Finished reading response header" << std::endl;
+		std::cout << getpid() << "Finished reading response header" << std::endl;
 		isConnect = requestHeader.requestType()[0] == 'C';
 		isHead = requestHeader.requestType()[0] == 'H';
 
@@ -595,13 +598,13 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 		url = requestHeader.getUrl(false, false);  // << Need to remove the 'isssl' flag from this method and put it somewhere else
 		urld = requestHeader.decode(url);
 #ifdef DGDEBUG
-		std::cout << "Reading in response header" << std::endl;
+		std::cout << getpid() << "Reading in response header" << std::endl;
 #endif
         	//The eCAP peer is going to just dump over the response header.  Therefore, read it in.
         	responseHeader.in(&ecappeer, true, true);  // get header from eCAP client, allowing persistency and breaking on reloadconfig
 
 #ifdef DEBUG
-		std::cout << "After reading in response header" << std::endl;
+		std::cout << getpid() << "After reading in response header" << std::endl;
 #endif
 
 		// don't even bother scan testing if the content-length header indicates the file is larger than the maximum size we'll scan
@@ -649,15 +652,21 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 //		}
 
 #ifdef DEBUG
-		std::cout << "ShouldScan: " << schouldScan << std::endl;
+		std::cout << getpid() << "ShouldScan: " << schouldScan << std::endl;
 #endif
 		if(shouldScan) {
 			ecappeer.writeToSocket(&FLAG_NEEDS_SCAN, 1, 0, 5, true, false);
 #ifdef DGDEBUG
-			std::cout << "Waiting for FLAG_MSG_RECVD after sending FLAG_NEEDS_SCAN" << std::endl;
+			std::cout << getpid() << "Waiting for FLAG_MSG_RECVD after sending FLAG_NEEDS_SCAN" << std::endl;
 #endif
 			read = ecappeer.readFromSocketn(ack, 1, 0, 5);
+#ifdef DGDEBUG
+			std::cout << getpid() << "After checking for FLAG_MSG_RECVD after sending FLAG_NEEDS_SCAN, read=" << read << std::endl;
+#endif
 			response = ack[0];
+#ifdef DGDEBUG
+			std::cout << getpid() << "Got response char" << std::endl;
+#endif
 			if(response != FLAG_MSG_RECVD) {
 				std::string error;
 				error.append("Received invalid FLAG_MSG_RECVD in response to FLAG_NEEDS_SCAN : '");
@@ -665,12 +674,15 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 				error.append("', read ");
 				error.append(std::to_string(read));
 				error.append(" chars");
+#ifdef DGDEBUG
+				std::cout << getpid() << error.c_str() << read << std::endl;
+#endif
 				throw std::runtime_error(error);
 			}
 		} else {
 			ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
 #ifdef DGDEBUG
-			std::cout << "Waiting for FLAG_MSG_RECVD after sending FLAG_USE_VIRGIN" << std::endl;
+			std::cout << getpid() << "Waiting for FLAG_MSG_RECVD after sending FLAG_USE_VIRGIN" << std::endl;
 #endif
 			ecappeer.readFromSocketn(ack, 1, 0, 5);
 			response = ack[0];
@@ -686,12 +698,14 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 				throw std::runtime_error(error);
 			}
 		}
-
+#ifdef DGDEBUG
+			std::cout << getpid() << "Checking whether response scanners are empty" << std::endl;
+#endif
 		//Re-check the response scanners now that the response header is available
 		if (!responsescanners.empty())
                 {
 #ifdef DGDEBUG
-                    std::cerr << dbgPeerPort << " -Number of response CS plugins in candidate list: " << responsescanners.size() << std::endl;
+                    std::cerr << getpid() << dbgPeerPort << " -Number of response CS plugins in candidate list: " << responsescanners.size() << std::endl;
 #endif
                     //send header to plugin here needed
                     //also send user and group
@@ -704,7 +718,7 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                         int csrc = (*i)->willScanData(requestHeader.getUrl(), clientuser.c_str(), filtergroup, clientip.c_str(),
                         	false, false, false, false, responseHeader.disposition(), responseHeader.getContentType(), responseHeader.contentLength());
 #ifdef DGDEBUG
-                        std::cerr << dbgPeerPort << " -willScanData for plugin " << j << " returned: " << csrc << std::endl;
+                        std::cerr << getpid() << dbgPeerPort << " -willScanData for plugin " << j << " returned: " << csrc << std::endl;
 #endif
                         if (csrc > 0) {
 				newplugins.push_back(*i);
@@ -720,25 +734,46 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                     // Store only those plugins which responded positively to willScanData
                     responsescanners.swap(newplugins);
                 }
-
+#ifdef DGDEBUG
+		std::cout << getpid() << "Checking whether response header is redirection or has auth required" << std::endl;
+#endif
 		if(!responseHeader.isRedirection() && !responseHeader.authRequired()) {
+#ifdef DGDEBUG
+		    std::cout << getpid() << "Response header was redirection or has auth required" << std::endl;
+#endif
 		    bool download_exception = false;
 
                     // Check the exception file site and MIME type lists.
                     mimetype = responseHeader.getContentType().toCharArray();
+#ifdef DGDEBUG
+		    std::cout << getpid() << "Mimetype=" << mimetype << std::endl;
+		    std::cout << getpid() << "urld=" << urld << std::endl;
+#endif
+
                     if (o.fg[filtergroup]->inExceptionFileSiteList(urld)) {
+#ifdef DGDEBUG
+		    std::cout << getpid() << "InExceptionFileSiteList" << std::endl;
+#endif
                         download_exception = true;
 		    }
                     else {
                         if (o.lm.l[o.fg[filtergroup]->exception_mimetype_list]->findInList(mimetype.c_str())) {
+#ifdef DGDEBUG
+		    std::cout << getpid() << "IsDownload_Exception" << std::endl;
+#endif
                             download_exception = true;
 			}
                     }
-
                     // Perform banned MIME type matching
                     if (!download_exception) {
+#ifdef DGDEBUG
+		        std::cout << getpid() << "Not a download exception" << std::endl;
+#endif
                         // If downloads are blanket blocked, block outright.
                         if (o.fg[filtergroup]->block_downloads) {
+#ifdef DGDEBUG
+		            std::cout << getpid() << "Block outright" << std::endl;
+#endif
                             // did not match the exception list
                             checkme.whatIsNaughty = o.language_list.getTranslation(750);
                             // Blanket file download is active
@@ -748,6 +783,9 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                             checkme.whatIsNaughtyCategories = "Blanket download block";
                         }
                         else if ((findResult = o.lm.l[o.fg[filtergroup]->banned_mimetype_list]->findInList(mimetype.c_str())) != NULL) {
+#ifdef DGDEBUG
+		            std::cout << getpid() << "Matched the banned list" << std::endl;
+#endif
                             // matched the banned list
                             checkme.whatIsNaughty = o.language_list.getTranslation(800);
                             // Banned MIME Type:
@@ -757,14 +795,18 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                             checkme.whatIsNaughtyCategories = "Banned MIME Type";
                         }
 #ifdef DGDEBUG
-                        std::cout << dbgPeerPort << mimetype.length() << std::endl;
-                        std::cout << dbgPeerPort << " -:" << mimetype;
-                        std::cout << dbgPeerPort << " -:" << std::endl;
+			std::cout << getpid() << "End of not download exception first" << std::endl;
+                        std::cout << getpid() << " " << dbgPeerPort << mimetype.length() << std::endl;
+                        std::cout << getpid() << " " << dbgPeerPort << " -:" << mimetype;
+                        std::cout << getpid() << " " << dbgPeerPort << " -:" << std::endl;
 #endif
                     }
 
                     // Perform extension matching - if not already matched the exception MIME or site lists
                     if (!download_exception) {
+#ifdef DGDEBUG
+		        std::cout << getpid() << "Performing Extension Matching" << std::endl;
+#endif
                         // Can't ban file extensions of URLs that just redirect
                         String tempurl(urld);
                         String tempdispos(responseHeader.disposition());
@@ -776,7 +818,7 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                         if (tempdispos.length() > 1) {
                             // dispos filename must take presidense
 #ifdef DGDEBUG
-                            std::cout << dbgPeerPort << " -Disposition filename:" << tempdispos << ":" << std::endl;
+                            std::cout << getpid() << dbgPeerPort << " -Disposition filename:" << tempdispos << ":" << std::endl;
 #endif
                             // The function expects a url so we have to
                             // generate a pseudo one.
@@ -787,6 +829,9 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                                 b = o.fg[filtergroup]->inExtensionList(blist, tempdispos);
 			    }
                         } else {
+#ifdef DGDEBUG
+		            std::cout << getpid() << "Tempdispos length less than 1" << std::endl;
+#endif
                             if (!tempurl.contains("?")) {
                                 e = o.fg[filtergroup]->inExtensionList(elist, tempurl);
                                 if ((e == NULL) && !(o.fg[filtergroup]->block_downloads)) {
@@ -817,6 +862,9 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                         // If downloads are blanket blocked, block unless matched the exception list.
                         // If downloads are not blanket blocked, block if matched the banned list and not the exception list.
                         if (o.fg[filtergroup]->block_downloads && (e == NULL)) {
+#ifdef DGDEBUG
+		            std::cout << getpid() << "Block downloads, e == NULL" << std::endl;
+#endif
                             // did not match the exception list
                             checkme.whatIsNaughty = o.language_list.getTranslation(751);
                             // Blanket file download is active
@@ -825,6 +873,9 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                             checkme.whatIsNaughtyCategories = "Blanket download block";
                         }
                         else if (!(o.fg[filtergroup]->block_downloads) && (e == NULL) && (b != NULL)) {
+#ifdef DGDEBUG
+		            std::cout << getpid() << "Not block downloads, e == NULL and b != NULL" << std::endl;
+#endif
                             // matched the banned list
                             checkme.whatIsNaughty = o.language_list.getTranslation(900);
                             // Banned extension:
@@ -834,6 +885,9 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                             checkme.whatIsNaughtyCategories = "Banned extension";
                         }
                         else if (e != NULL) {
+#ifdef DGDEBUG
+		            std::cout << getpid() << "e != NULL" << std::endl;
+#endif
                             // intention is to match either/or of the MIME & extension lists
                             // so if it gets this far, un-naughty it (may have been naughtied by the MIME type list)
                             checkme.isItNaughty = false;
@@ -842,7 +896,7 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 		}
 
 #ifdef DGDEBUG
-		std::cout << "shouldScan: " << shouldScan << std::endl;
+		std::cout << getpid() << "!checkme.isItNaughty && (cl != 0) && !isHead" << std::endl;
 #endif
 		//Check response body if the mimetype check didn't come back naughty
                 if (!checkme.isItNaughty && (cl != 0) && !isHead)  {
@@ -911,21 +965,14 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                 	}
                 }
 
-		//If naughty then block (WIP)
+		//TODO:
+		//Figure out what's in the buffer before the 'msg received' flag in some cases
 
-		/*
-		Based on the header, determine whether the response body needs to be scanned, blocked, or allowed:
-
-		Look at the MIME-typing of the response - allow / block based on allowed / blocked types
-		If allowed, determine whether it's a response type that needs to be scanned
-		If needs blocking, send 'b' to ecap peer, followed by block page headers and body
-		If allowing without scan, send 'v' to ecap peer and exit the method
-		If needs scanning (and is a scannable size), send 's' to ecap peer - ecap peer will send over the response body once it's available
-			-scan the response body
-			-respond with 'v' to allow the response unaltered
-			-respond with 'b' to block, followed by block page headers and body
-		*/
-
+		//Send 'Block' flag if 'naughty'
+		//Send the 'use virgin' flag if clean
+		//Wait for 'message received' flag
+		//If was 'naughty' then send the block headers and page
+		//If was clean, then just exit
 
 	} catch (std::exception & e)    {
 #ifdef DGDEBUG

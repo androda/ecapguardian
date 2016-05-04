@@ -649,6 +649,9 @@ bool FOptionContainer::read(const char *filename)
             std::string exception_extension_list_location(findoptionS("exceptionextensionlist"));
             std::string exception_mimetype_list_location(findoptionS("exceptionmimetypelist"));
             std::string exception_file_site_list_location(findoptionS("exceptionfilesitelist"));
+#ifdef DGDEBUG
+	    std::cout << getpid() << "exception_file_site_list_location" << exception_file_site_list_location << std::endl;
+#endif
             std::string exception_file_url_list_location(findoptionS("exceptionfileurllist"));
             std::string log_url_list_location(findoptionS("logurllist"));
             std::string log_site_list_location(findoptionS("logsitelist"));
@@ -796,6 +799,9 @@ bool FOptionContainer::read(const char *filename)
             }		// mime types
             exception_mimetype_flag = true;
             if (!readFile(exception_file_site_list_location.c_str(),&exception_file_site_list,false,true,"exceptionfilesitelist"))            {
+#ifdef DGDEBUG
+	        std::cout << "Could not read exception_file_site_list_location" << std::endl;
+#endif
                 return false;
             }		// download site exceptions
             exception_file_site_flag = true;
@@ -1309,8 +1315,14 @@ char *FOptionContainer::testBlanketBlock(unsigned int list, bool ip, bool ssl){
 
 char *FOptionContainer::inSiteList(String &url, unsigned int list, bool doblanket, bool ip, bool ssl)
 {
+#ifdef DGDEBUG
+        std::cout << getpid() << "FOptionContainer::inSiteList" << std::endl;
+#endif
     // Perform blanket matching if desired
     if (doblanket)    {
+#ifdef DGDEBUG
+        std::cout << getpid() << "FOptionContainer::inSiteList - is doblanket" << std::endl;
+#endif
         char *r = testBlanketBlock(list, ip, ssl);
         if (r)        {
             return r;
@@ -1524,20 +1536,36 @@ bool FOptionContainer::inExceptionSiteList(String url, bool doblanket, bool ip, 
 
 bool FOptionContainer::inExceptionFileSiteList(String url)
 {
-    if (inSiteList(url, exception_file_site_list) != NULL)
+#ifdef DGDEBUG
+        std::cout << getpid() << "FOptionContainer::inExceptionFileSiteList" << std::endl;
+#endif
+    if (inSiteList(url, exception_file_site_list) != NULL) {
+#ifdef DGDEBUG
+        std::cout << getpid() << "InSiteList" << std::endl;
+#endif
         return true;
-    else
+    } else {
+#ifdef DGDEBUG
+        std::cout << getpid() << "Not InSiteList" << std::endl;
+#endif
         return inURLList(url, exception_file_url_list) != NULL;
+    }
 }
 
 // look in given URL list for given URL
 char *FOptionContainer::inURLList(String &url, unsigned int list, bool doblanket, bool ip, bool ssl){
+#ifdef DGDEBUG
+        std::cout << getpid() << "FOptionContainer::inURLList" << std::endl;
+#endif
     if (ssl)    // can't be in url list as SSL is site only
     {
         return NULL;
     };
     // Perform blanket matching if desired
     if (doblanket)    {
+#ifdef DGDEBUG
+        std::cout << getpid() << "FOptionContainer::inURLList : is doblanket" << std::endl;
+#endif
         char *r = testBlanketBlock(list, ip, ssl);
         if (r)        {
             return r;
@@ -1548,7 +1576,7 @@ char *FOptionContainer::inURLList(String &url, unsigned int list, bool doblanket
     char *i;
     String foundurl;
 #ifdef DGDEBUG
-    std::cout << "inURLList: " << url << std::endl;
+    std::cout << getpid() << "inURLList: " << url << std::endl;
 #endif
     url.removeWhiteSpace();  // just in case of weird browser crap
     url.toLower();
@@ -1565,7 +1593,7 @@ char *FOptionContainer::inURLList(String &url, unsigned int list, bool doblanket
         url.chop();  // chop off trailing / if any
     }
 #ifdef DGDEBUG
-    std::cout << "inURLList (processed): " << url << std::endl;
+    std::cout << getpid() << "inURLList (processed): " << url << std::endl;
 #endif
     if (reverse_lookups && url.after("/").length() > 0)    {
         String hostname(url.getHostname());
