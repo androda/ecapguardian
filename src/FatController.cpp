@@ -611,6 +611,9 @@ int send_readystatus(UDSocket &pipe, String *message)  				// blocks until timeo
 //	String message("2\n");d
     try
     {
+#ifdef DGDEBUG
+	std::cout << getpid() << "subproc send_readystatus, waiting up to 15 seconds" << std::endl;
+#endif
         if (!pipe.writeToSocket((*message).toCharArray(), (*message).length(), 0, 15, true, true))
         {
             return -1;
@@ -702,6 +705,9 @@ bool getsock_fromparent(UDSocket &fd)
     int rc;
     try
     {
+#ifdef DGDEBUG
+	std::cout << getpid() << "getsock_fromparent waiting up to 360 seconds for task" << std::endl;
+#endif
         rc = fd.readFromSocket(&buf, 1, 0, 360, true, true);  // blocks for a few mins
     }
     catch (std::exception & e)
@@ -1035,6 +1041,9 @@ bool check_subproc_readystatus(int tofind)
             }
             try
             {
+#ifdef DGDEBUG
+		std::cout << getpid() << "check_subproc_readystatus waiting up to 100 seconds" << std::endl;
+#endif
                 rc = subprocsockets[f]->getLine(buf, 4, 100, true);
             }
             catch (std::exception & e)

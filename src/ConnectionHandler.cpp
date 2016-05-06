@@ -538,7 +538,7 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 	//Set header read timeout - waiting forever is a bad thing
 	responseHeader.setTimeout(o.pcon_timeout);
 	DataBuffer docbody;
-	docbody.setTimeout(o.proxy_timeout);
+	docbody.setTimeout(1);
 
 	std::deque<CSPlugin*> responsescanners;
 	bool isConnect;
@@ -942,7 +942,9 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                         }
                     }
                 }
-
+#ifdef DGDEBUG
+		std::cout << "WasNaughty? : " << checkme.isItNaughty << std::endl;
+#endif
 		if(!isexception && checkme.isException) {
 			isexception = true;
 			exceptionreason = checkme.whatIsNaughtyLog;
@@ -965,15 +967,46 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                 	}
                 }
 
-		//TODO:
-		//Figure out what's in the buffer before the 'msg received' flag in some cases
-
-		//Send 'Block' flag if 'naughty'
-		//Send the 'use virgin' flag if clean
-		//Wait for 'message received' flag
-		//If was 'naughty' then send the block headers and page
-		//If was clean, then just exit
-
+		if(checkme.isItNaughty) {
+                        std::string empty("");
+			String emptyS(empty.c_str());
+			ecappeer.writeToSocket(&FLAG_MODIFY, 1, 0, 5, true, false);
+#ifdef DGDEBUG
+                        std::cout << "Waiting for FLAG_MSG_RECVD after determining isItNaughty = true" << std::endl;
+#endif
+                        ecappeer.readFromSocketn(ack, 1, 0, 1);
+                        if(ack[0] == FLAG_MSG_RECVD) {
+				// write blockpage headers
+				ecappeer.writeToSocket(blockHeaders.c_str(), blockHeaders.length(), 0, 0);
+                        } else {
+                                throw std::runtime_error("Received invalid FLAG_MSG_RECVD after isItNaughty = true : " + std::string(1, ack[0]));
+                        }
+			// after writing the blockpage headers, wait for the FLAG_MSG_RECVD again
+			ecappeer.readFromSocketn(ack, 1, 0, 1);
+                        if(ack[0] == FLAG_MSG_RECVD) {
+				//write blockpage
+				o.fg[filtergroup]->getHTMLTemplate()->display(&ecappeer, &url,
+		                    checkme.whatIsNaughty, checkme.whatIsNaughtyCategories,
+                		    empty, &empty, &empty, &empty, 0, emptyS);
+                        } else {
+                                throw std::runtime_error("Received invalid FLAG_MSG_RECVD after sending blockpage headers : " + std::string(1, ack[0]));
+                        }
+			//Read from the socket to block and keep it open until the ecap adapter has read the whole blockpage
+			ecappeer.readFromSocketn(ack, 1, 0, 1);
+                        return 0;
+		} else {
+			ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
+#ifdef DGDEBUG
+			std::cout << "Waiting for FLAG_MSG_RECVD after determining isItNaughty = false" << std::endl;
+#endif
+			ecappeer.readFromSocketn(ack, 1, 0, 1);
+			if(ack[0] == FLAG_MSG_RECVD) {
+				return 0;
+			} else {
+				throw std::runtime_error("Received invalid FLAG_MSG_RECVD after isItNaughty = false : " + std::string(1, ack[0]));
+			}
+			return 0;
+		}
 	} catch (std::exception & e)    {
 #ifdef DGDEBUG
         std::cerr << dbgPeerPort << " -connection handler caught an exception: " << e.what() << std::endl;
@@ -4434,7 +4467,7 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
 {
     int rc = 0;
 
-    proxysock->checkForInput(120);
+    proxysock->checkForInput(3);
     bool compressed = docheader->isCompressed();
     if (compressed)    {
 #ifdef DGDEBUG

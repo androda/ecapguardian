@@ -115,6 +115,9 @@ int DataBuffer::bufferReadFromSocket(BaseSocket * sock, char *buffer, int size, 
     int pos = 0;
     int rc;
     while (pos < size)    {
+#ifdef DGDEBUG
+	std::cout << getpid() << "pos:" << pos << " size:" << size << std::endl;
+#endif
         rc = sock->readFromSocket(&buffer[pos], size - pos, 0, sockettimeout);
         if (rc < 1)        {
             // none recieved or an error
@@ -141,6 +144,9 @@ int DataBuffer::bufferReadFromSocket(BaseSocket * sock, char *buffer, int size, 
     struct timeval nowadays;
     gettimeofday(&starttime, NULL);
     while (pos < size)    {
+#ifdef DGDEBUG
+	std::cout << getpid() << "pos:" << pos << " size:" << size << std::endl;
+#endif
         rc = sock->readFromSocket(&buffer[pos], size - pos, 0, sockettimeout, false);
         if (rc < 1)        {
             // none recieved or an error
@@ -266,7 +272,7 @@ void DataBuffer::out(Socket * sock) throw(std::exception)
 #ifdef DGDEBUG
                 std::cout << "error reading temp file so throwing exception" << std::endl;
 #endif
-                throw std::exception();
+                throw std::runtime_error("DataBuffer::out - error reading temp file");
             }
             if (rc == 0)            {
 #ifdef DGDEBUG
@@ -294,10 +300,10 @@ void DataBuffer::out(Socket * sock) throw(std::exception)
         // it's in RAM, so just send it, no streaming from disk
         if (buffer_length != 0)        {
             if (!sock->writeToSocket(data + bytesalreadysent, buffer_length - bytesalreadysent, 0, timeout))
-                throw std::exception();
+                throw std::runtime_error("DataBuffer::out - could not write remaining data to output socket");
         }        else        {
             if (!sock->writeToSocket("\r\n\r\n", 4, 0, timeout))
-                throw std::exception();
+                throw std::runtime_error("DataBuffer::out - could not write pair of newlines");
         }
     }
 }

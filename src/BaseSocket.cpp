@@ -67,7 +67,7 @@ int selectEINTR(int numfds, fd_set * readfds, fd_set * writefds, fd_set * except
 #endif
         if (timeout != NULL)        {
 #ifdef DGDEBUG
-            std::cout << getpid() << "In selectEINTR : timeout not null" << std::endl;
+            std::cout << getpid() << "In selectEINTR : timeout not null, value (seconds):" << timeout->tv_sec << std::endl;
 #endif
             gettimeofday(&entrytime, NULL);
             timeoutcopy = *timeout;
@@ -208,7 +208,7 @@ int BaseSocket::getTimeout()
 bool BaseSocket::checkForInput()
 {
 #ifdef DGDEBUG
-    std::cout << "BaseSocket::checkForInput: starting for sck:" << sck << std::endl;
+    std::cout << getpid() << "BaseSocket::checkForInput: starting for sck:" << sck << std::endl;
 #endif
     if ((bufflen - buffstart) > 0) {
         return true;
@@ -232,11 +232,11 @@ bool BaseSocket::checkForInput()
 void BaseSocket::checkForInput(int timeout, bool honour_reloadconfig) throw(std::exception)
 {
 #ifdef DGDEBUG
-    std::cout << "BaseSocket::checkForInput: starting for sck:" << sck << std::endl;
+    std::cout << getpid() << "BaseSocket::checkForInput: starting for sck:" << sck << std::endl;
 #endif
     if ((bufflen - buffstart) > 0) {
 #ifdef DGDEBUG
-        std::cout << "BaseSocket::checkForInput(timeout, honour_reloadconfig) : (bufflen - buffstart) > 0" << std::endl;
+        std::cout << getpid() << "BaseSocket::checkForInput(timeout, honour_reloadconfig) : (bufflen - buffstart) > 0" << std::endl;
 #endif
         return;
     }
@@ -293,14 +293,14 @@ int BaseSocket::getLine(char *buff, int size, int timeout, bool honour_reloadcon
     int i = 0;
     if ((bufflen - buffstart) > 0)    {
 #ifdef DGDEBUG
-        std::cout << "data already in buffer; bufflen: " << bufflen << " buffstart: " << buffstart << std::endl;
+        std::cout << getpid() << "data already in buffer; bufflen: " << bufflen << " buffstart: " << buffstart << std::endl;
 #endif
 
         //work out the maximum size we want to read from our internal buffer
         int tocopy = size-1;
         if ((bufflen - buffstart) < tocopy){
             tocopy = bufflen - buffstart;
-		}
+	}
 
         //copy the data to output buffer (up to 8192 chars in loglines case)
         char* result = (char*)memccpy(buff, buffer + buffstart, '\n', tocopy);
@@ -332,7 +332,7 @@ int BaseSocket::getLine(char *buff, int size, int timeout, bool honour_reloadcon
             throw std::runtime_error(std::string("Can't read from socket: ") + e.what());  // on error
         }
 #ifdef DGDEBUG
-        std::cout << "read into buffer; bufflen: " << bufflen << std::endl;
+        std::cout << getpid() << "read into buffer; bufflen: " << bufflen << std::endl;
 #endif
         //if there was a socket error
         if (bufflen < 0)        {
@@ -428,7 +428,7 @@ int BaseSocket::readFromSocketn(char *buff, int len, unsigned int flags, int tim
     // first, return what's left from the previous buffer read, if anything
     if ((bufflen - buffstart) > 0)    {
 #ifdef DGDEBUG
-        std::cout << "readFromSocketn: data already in buffer; bufflen: " << bufflen << " buffstart: " << buffstart << std::endl;
+        std::cout << getpid() << "readFromSocketn: data already in buffer; bufflen: " << bufflen << " buffstart: " << buffstart << std::endl;
 #endif
         int tocopy = len;
         if ((bufflen - buffstart) < len)
@@ -443,7 +443,7 @@ int BaseSocket::readFromSocketn(char *buff, int len, unsigned int flags, int tim
 
     while (cnt > 0)    {
 #ifdef DGDEBUG
-	std::cout << "Checking for input on socket" << std::endl;
+	std::cout << getpid() << "Checking for input on socket" << std::endl;
 #endif
         try        {
             checkForInput(timeout);  // throws exception on error or timeout
@@ -478,7 +478,7 @@ int BaseSocket::readFromSocket(char *buff, int len, unsigned int flags, int time
         tocopy = len;
 
 #ifdef DGDEBUG
-        std::cout << "readFromSocket: data already in buffer; bufflen: " << bufflen << " buffstart: " << buffstart << std::endl;
+        std::cout << getpid() << "readFromSocket: data already in buffer; bufflen: " << bufflen << " buffstart: " << buffstart << std::endl;
 #endif
         if ((bufflen - buffstart) < len)
             tocopy = bufflen - buffstart;
