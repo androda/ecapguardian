@@ -5,7 +5,7 @@ AC_DEFINE([__SSLMITM],[""],[Define to enable SSL MITM])
 AC_DEFINE([FD_SETSIZE_OVERIDE],[""],[Define to allow DANS_MAXFD to exceed FD_SETSIZE])
 
 AC_PREREQ(2.57)
-AC_INIT(e2guardian, 3.3.2)
+AC_INIT(ecapguardian, 0.5.0)
 AM_INIT_AUTOMAKE
 AC_CONFIG_HEADERS([dgconfig.h])
 AC_CONFIG_MACRO_DIR([m4])
@@ -128,11 +128,11 @@ AC_ARG_WITH(proxyuser,
   proxyuser=${withval}
 else
   AC_MSG_RESULT(no)
-  proxyuser=nobody
+  proxyuser=proxy
 fi], [
   # disable by default
   AC_MSG_RESULT(no)
-  proxyuser=nobody
+  proxyuser=proxy
 ])
 AC_SUBST(DGPROXYUSER, "$proxyuser")
 
@@ -144,11 +144,11 @@ AC_ARG_WITH(proxygroup,
   proxygroup=${withval}
 else
   AC_MSG_RESULT(no)
-  proxygroup=nobody
+  proxygroup=proxy
 fi], [
   # disable by default
   AC_MSG_RESULT(no)
-  proxygroup=nobody
+  proxygroup=proxy
 ])
 AC_SUBST(DGPROXYGROUP, "$proxygroup")
 
@@ -649,7 +649,7 @@ if test -n "$dans_filedescriptors_num"; then
 
 	if test "$dans_filedescriptors_num" -lt 512; then
 	    AC_MSG_WARN([$dans_filedescriptors_num may not be enough filedescriptors if])
-	    AC_MSG_WARN([e2guardian will be very busy.])
+	    AC_MSG_WARN([ecapguardian will be very busy.])
 	    AC_DEFINE_UNQUOTED(DANS_MAXFD, $dans_filedescriptors_num,[Maximum number of open filedescriptors])
 	fi
 
@@ -686,7 +686,7 @@ AC_DEFINE_UNQUOTED([DG_CONFIGURE_OPTIONS], ["$ac_configure_args"], [Record confi
 libdir="${libdir}/${PACKAGE_NAME}"
 
 AC_ARG_WITH(sysconfsubdir,
-[AC_HELP_STRING([--with-sysconfsubdir@<:@=e2guardian@:>@], [subdirectory under sysconfdir in which to place config files])],
+[AC_HELP_STRING([--with-sysconfsubdir@<:@=ecapguardian@:>@], [subdirectory under sysconfdir in which to place config files])],
 [if test "x$withval" != "x"; then
 dgsysconfdir="${sysconfdir}/${withval}"
 else
@@ -710,14 +710,14 @@ data/Makefile
 data/languages/Makefile
 data/scripts/Makefile
 data/scripts/bsd-init
-data/scripts/e2guardian
+data/scripts/ecapguardian
 data/scripts/logrotation
 data/scripts/solaris-init
 data/scripts/systemv-init
-data/scripts/e2guardian.service
+data/scripts/ecapguardian.service
 doc/Makefile
-configs/e2guardian.conf
-configs/e2guardianf1.conf
+configs/ecapguardian.conf
+configs/ecapguardianf1.conf
 configs/Makefile
 configs/lists/Makefile
 configs/lists/phraselists/Makefile

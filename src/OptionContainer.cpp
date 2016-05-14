@@ -1,5 +1,5 @@
 // For all support, instructions and copyright go to:
-// http://e2guardian.org/
+// http://ecapguardian.org/
 // Released under the GPL v2, with the OpenSSL exception described in the README file.
 
 // INCLUDES
@@ -110,12 +110,12 @@ bool OptionContainer::read(const char *filename, int type)
     try    {
         std::string linebuffer;
         String temp;  // for tempory conversion and storage
-        std::ifstream conffiles(filename, std::ios::in);  // e2guardian.conf
+        std::ifstream conffiles(filename, std::ios::in);  // ecapguardian.conf
         if (!conffiles.good())        {
             if (!is_daemonised)            {
                 std::cerr << "error reading: " << filename << std::endl;
             }
-            syslog(LOG_ERR, "%s", "error reading e2guardian.conf");
+            syslog(LOG_ERR, "%s", "error reading ecapguardian.conf");
             return false;
         }
         while (!conffiles.eof())        {
@@ -138,27 +138,27 @@ bool OptionContainer::read(const char *filename, int type)
         if (type == 0 || type == 2)        {
 
             if ((ipc_filename = findoptionS("ipcfilename")) == "")
-                ipc_filename = "/tmp/.e2guardianipc";
+                ipc_filename = "/tmp/.ecapguardianipc";
 
             if ((urlipc_filename = findoptionS("urlipcfilename")) == "")
-                urlipc_filename = "/tmp/.e2guardianurlipc";
+                urlipc_filename = "/tmp/.ecapguardianurlipc";
 
             if ((ipipc_filename = findoptionS("ipipcfilename")) == "")
-                ipipc_filename = "/tmp/.e2guardianipipc";
+                ipipc_filename = "/tmp/.ecapguardianipipc";
 
             if ((pid_filename = findoptionS("pidfilename")) == "")            {
                 pid_filename = __PIDDIR;
-                pid_filename += "/e2guardian.pid";
+                pid_filename += "/ecapguardian.pid";
             }
 
             ecap_reqmod_filename = findoptionS("ecapreqmodfilename");
             if(ecap_reqmod_filename == ""){
-                ecap_reqmod_filename += "/etc/e2guardian/ecap/reqmod";
+                ecap_reqmod_filename += "/etc/ecapguardian/ecap/reqmod";
             }
 
             ecap_respmod_filename = findoptionS("ecaprespmodfilename");
             if(ecap_respmod_filename == ""){
-                ecap_respmod_filename += "/etc/e2guardian/ecap/respmod";
+                ecap_respmod_filename += "/etc/ecapguardian/ecap/respmod";
             }
 
             if (findoptionS("logsyslog") == "on")            {
@@ -222,7 +222,7 @@ bool OptionContainer::read(const char *filename, int type)
         mailer = findoptionS("mailer");
 #endif
 
-        // the e2guardian.conf and pics files get amalgamated into one
+        // the ecapguardian.conf and pics files get amalgamated into one
         // deque.  They are only seperate files for clarity.
 
         max_logitem_length = findoptionI("maxlogitemlength");
@@ -233,19 +233,19 @@ bool OptionContainer::read(const char *filename, int type)
             return false;
         }
         proxy_timeout = findoptionI("proxytimeout");
-        if (!realitycheck(proxy_timeout, 5, 100, "proxytimeout"))        {
-            return false;
-        }               // check its a reasonable value
+//        if (!realitycheck(proxy_timeout, 5, 100, "proxytimeout"))        {
+//            return false;
+//        }               // check its a reasonable value
 
         pcon_timeout  = findoptionI("pcontimeout");
-        if (!realitycheck(pcon_timeout, 5, 300, "pcontimeout"))        {
-            return false;
-        }               // check its a reasonable value
+//        if (!realitycheck(pcon_timeout, 5, 300, "pcontimeout"))        {
+//            return false;
+//        }               // check its a reasonable value
 
         exchange_timeout  = findoptionI("proxyexchange");
-        if (!realitycheck(exchange_timeout, 5, 300, "proxyexchange"))        {
-            return false;
-        }
+//        if (!realitycheck(exchange_timeout, 5, 300, "proxyexchange"))        {
+//            return false;
+//        }
 
         max_subprocs = findoptionI("maxsubprocs");
         if (!realitycheck(max_subprocs, 4, 0, "maxsubprocs"))        {

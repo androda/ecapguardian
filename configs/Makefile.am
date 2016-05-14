@@ -1,6 +1,6 @@
 DISTCLEANFILES = Makefile.in \
-e2guardian.conf \
-e2guardianf1.conf
+ecapguardian.conf \
+ecapguardianf1.conf
 
 SUBDIRS = lists downloadmanagers authplugins .
 
@@ -8,9 +8,9 @@ if NEED_CSCONFIGS
 SUBDIRS += contentscanners
 endif
 
-FLISTS = e2guardian.conf e2guardianf1.conf
+FLISTS = ecapguardian.conf ecapguardianf1.conf
 
-EXTRA_DIST = e2guardian.conf.in e2guardianf1.conf.in
+EXTRA_DIST = ecapguardian.conf.in ecapguardianf1.conf.in
 
 install-data-local: 
 	$(mkinstalldirs) $(DESTDIR)$(DGCONFDIR) && \

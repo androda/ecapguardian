@@ -4,13 +4,13 @@ SUBDIRS= .
 
 DATATOPDIR = $(datadir)/$(PACKAGE_NAME)/scripts
 
-FLISTS = e2guardian logrotation bsd-init\
+FLISTS = ecapguardian logrotation bsd-init\
              solaris-init systemv-init\
-	     e2guardian.service
+	     ecapguardian.service
 
-EXTRA_DIST = e2guardian.in logrotation.in bsd-init.in\
+EXTRA_DIST = ecapguardian.in logrotation.in bsd-init.in\
              solaris-init.in systemv-init.in\
-	     e2guardian.service.in
+	     ecapguardian.service.in
 
 install-data-local: 
 	$(mkinstalldirs) $(DESTDIR)$(DATATOPDIR) && \
