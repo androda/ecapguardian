@@ -1,0 +1,10 @@
+[Unit]
+Description=ecapguardian - filtergizmo internet filter
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=@DGBINDIR@/ecapguardian
+
+[Install]
+WantedBy=multi-user.target

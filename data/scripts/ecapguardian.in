@@ -1,0 +1,13 @@
+@DGLOGLOCATION@/access.log {
+  rotate 4
+  weekly
+  sharedscripts
+  prerotate
+    killall ecapguardian > /dev/null
+    sleep 5
+  endscript
+
+  postrotate
+    @DGBINDIR@/ecapguardian > /dev/null
+  endscript
+}
