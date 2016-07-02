@@ -64,7 +64,7 @@ logfileformat = 1
 # Dymamic statistics log file location
 #
 # Defines the dstats file directory and filename.
-# Once every 5 minutes, stats on number of children, in use and free, number of 
+# Once every 5 minutes, stats on number of subprocs, in use and free, number of 
 # connections and connections per second are written to this
 # file. Format is similar to sar.
 # Default is not to write stats.
@@ -560,39 +560,39 @@ logchildprocesshandling = off
 # sets the maximum number of processes to spawn to handle the incoming
 # connections.  Max value usually 250 depending on OS.
 # On large sites you might want to try 380.
-maxchildren = 180
+maxsubprocs = 180
 
 
 # sets the minimum number of processes to spawn to handle the incoming connections.
 # On large sites you might want to try 64.
-minchildren = 20
+minsubprocs = 20
 
 
 # sets the minimum number of processes to be kept ready to handle connections.
 # On large sites you might want to try 16.
-minsparechildren = 16
+minsparesubprocs = 16
 
 
 # sets the minimum number of processes to spawn when it runs out
 # On large sites you might want to try 20.
-preforkchildren = 10
+preforksubprocs = 10
 
 
 # sets the maximum number of processes to have doing nothing.
 # When this many are spare it will cull some of them.
 # On large sites you might want to try 64.
-maxsparechildren = 32
+maxsparesubprocs = 32
 
 
 # sets the maximum age of a child process before it croaks it.
 # This is the number of connections they handle before exiting.
 # On large sites you might want to try 10000.
-maxagechildren = 500
+maxagesubprocs = 500
 
 
 # sets the number of child process to kill/fork at each 5 sec interval.
 # during at gentle restart
-# defaults to preforkchildren
+# defaults to preforksubprocs
 # gentlechunk=10
 
 
@@ -713,11 +713,11 @@ softrestart = off
 # monitor helper path 
 # If defined this script/binary will be called with start or stop appended as follows:-
 # 
-# At start after ecapguardian has started monitorcount children with ' start' appended
+# At start after ecapguardian has started monitorcount subprocs with ' start' appended
 # When ecapguardian is stopping with ' stop' appended
 # If cache stops responding with ' stop' appended
 # When cache resumes with ' start' appended
 # minitorhelper = '/usr/local/bin/mymonitor'
 
-# monitorcount - defaults to minchildren
+# monitorcount - defaults to minsubprocs
 # monitorcount = 0
