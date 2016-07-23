@@ -794,61 +794,6 @@ void tell_monitor(bool active)
     return;
 };
 
-void wait_for_proxy()
-{
-    Socket proxysock;
-    int rc;
-
-    try
-    {
-        // ...connect to proxy
-        rc = proxysock.connect(o.proxy_ip, o.proxy_port);
-        if (!rc)
-        {
-            proxysock.close();
-            cache_erroring = 0;
-            return;
-        }
-        syslog(LOG_ERR, "Proxy is not responding - Waiting for proxy to respond");
-        if (o.monitor_helper_flag) tell_monitor(false);
-        int wait_time = 1;
-        // why 10 mins ?
-        // int interval = 600; // 10 mins
-
-        int interval = o.proxy_timeout;
-        int cnt_down = interval;
-        while (true)
-        {
-            rc = proxysock.connect(o.proxy_ip, o.proxy_port);
-            if (!rc)
-            {
-                proxysock.close();
-                cache_erroring = 0;
-                syslog(LOG_ERR, "Proxy now responding - resuming after %d seconds", wait_time);
-                if (o.monitor_helper_flag) tell_monitor(true);
-                return;
-            }
-            else
-            {
-                wait_time++;
-                cnt_down--;
-                if (cnt_down < 1)
-                {
-                    syslog(LOG_ERR, "Proxy not responding - still waiting after %d seconds proxytimeout = %d",  wait_time, interval);
-                    cnt_down = interval;
-                }
-                sleep(1);
-            }
-        }
-    }
-    catch (std::exception & e)
-    {
-#ifdef DGDEBUG
-        std::cerr << " -exception while creating proxysock: " << e.what() << std::endl;
-#endif
-    }
-}
-
 // look for any dead subprocs, and clean them up
 void mopup_aftersubprocs()
 {
@@ -2860,8 +2805,6 @@ int fc_controlit()
     }
     reloadconfig = false;
 
-    wait_for_proxy(); // will return once a test connection established
-
     while (failurecount < 30 && !ttg && !reloadconfig)
     {
 
@@ -2960,11 +2903,6 @@ int fc_controlit()
             }
         }
         mopup_aftersubprocs();
-
-        if (cache_erroring)
-        {
-            wait_for_proxy();
-        }
 
         rc = poll(pids, fds, 60 * 1000);
         mopup_aftersubprocs();
