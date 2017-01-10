@@ -518,6 +518,8 @@ bool FOptionContainer::read(const char *filename)
         }        else        {
             non_standard_delimiter = true;
         }
+        
+        mitm_preservation_level = findoptionI("mitm_preservation_level");
 
         // group mode: 0 = banned, 1 = filtered, 2 = exception
         group_mode = findoptionI("groupmode");

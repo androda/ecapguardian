@@ -608,18 +608,22 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 #endif
 
 		// don't even bother scan testing if the content-length header indicates the file is larger than the maximum size we'll scan
-        	// - based on patch supplied by cahya (littlecahya@yahoo.de)
-        	// be careful: contentLength is signed, and max_content_filecache_scan_size is unsigned
-        	off_t cl = responseHeader.contentLength();
-        	if (!responsescanners.empty()) {
-            		if (cl == 0) {
+        // - based on patch supplied by cahya (littlecahya@yahoo.de)
+        // be careful: contentLength is signed, and max_content_filecache_scan_size is unsigned
+        off_t cl = responseHeader.contentLength();
+        if (!responsescanners.empty()) {
+            if (cl == 0) {
 				responsescanners.clear();
-			} // Empty response need not be scanned
-            		else if ((cl > 0) && (cl > o.max_content_filecache_scan_size)) {
+            } // Empty response need not be scanned
+            else if ((cl > 0) && (cl > o.max_content_filecache_scan_size)) {
 				responsescanners.clear();
 			} // Too large?  Not scanning.
-        	}
+        }
 
+        if (o.fg[filtergroup]->mitm_preservation_level) {
+            shouldScan = true;
+        }
+        
 		shouldScan = (cl != 0) && !isHead &&
 				((responseHeader.isContentType("text") || responseHeader.isContentType("-")) || !responsescanners.empty());
 
@@ -739,31 +743,30 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 #endif
 		if(!responseHeader.isRedirection() && !responseHeader.authRequired()) {
 #ifdef DGDEBUG
-		    std::cout << getpid() << "Response header was redirection or has auth required" << std::endl;
+		    std::cout << getpid() << "Response header was not redirection and no auth required" << std::endl;
 #endif
 		    bool download_exception = false;
 
-                    // Check the exception file site and MIME type lists.
-                    mimetype = responseHeader.getContentType().toCharArray();
+            // Check the exception file site and MIME type lists.
+            mimetype = responseHeader.getContentType().toCharArray();
 #ifdef DGDEBUG
 		    std::cout << getpid() << "Mimetype=" << mimetype << std::endl;
 		    std::cout << getpid() << "urld=" << urld << std::endl;
 #endif
 
-                    if (o.fg[filtergroup]->inExceptionFileSiteList(urld)) {
+            if (o.fg[filtergroup]->inExceptionFileSiteList(urld)) {
 #ifdef DGDEBUG
-		    std::cout << getpid() << "InExceptionFileSiteList" << std::endl;
+                std::cout << getpid() << "InExceptionFileSiteList" << std::endl;
 #endif
-                        download_exception = true;
-		    }
-                    else {
-                        if (o.lm.l[o.fg[filtergroup]->exception_mimetype_list]->findInList(mimetype.c_str())) {
+                download_exception = true;
+		    } else {
+                if (o.lm.l[o.fg[filtergroup]->exception_mimetype_list]->findInList(mimetype.c_str())) {
 #ifdef DGDEBUG
-		    std::cout << getpid() << "IsDownload_Exception" << std::endl;
+                    std::cout << getpid() << "IsDownload_Exception" << std::endl;
 #endif
-                            download_exception = true;
-			}
-                    }
+                    download_exception = true;
+                }
+            }
                     // Perform banned MIME type matching
                     if (!download_exception) {
 #ifdef DGDEBUG
@@ -967,33 +970,55 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                 	}
                 }
 
+        
+        // Need new logic.
+        // Possibilities:
+        /*
+        1: Not modifying, not naughty: use virgin
+        2: Not modifying, was naughty: block
+        3: Modifying, not naughty: Modify - new response headers, but original body
+        4: Modifying, was naughty: Modify - new response headers, but blockpage body
+        */
+        
+        //This is where you scan response headers for things to remove
+        if (o.fg[filtergroup]->mitm_preservation_level) {
+            //Scan the headers for various anti-MITM technologies and handle them
+            //HPKP looks like this in the header: "Public-Key-Pins:pin-sha256="sbKjNAOqGTDfcyW1mBsy9IOtS2XS4AE+RJsm+LcR+mU="; max-age=0;"
+                //just replace whatever max-age that's specified with '0'
+                   //Probably needs to be implemented in HTTPHeader.cpp
+           //See https://news.netcraft.com/archives/2016/03/30/http-public-key-pinning-youre-doing-it-wrong.html
+           // and https://linux-audit.com/delete-a-hsts-key-pin-in-chrome/
+           // and https://scotthelme.co.uk/hpkp-cheat-sheet/
+            
+        }
+        
 		if(checkme.isItNaughty) {
-                        std::string empty("");
+            std::string empty("");
 			String emptyS(empty.c_str());
 			ecappeer.writeToSocket(&FLAG_MODIFY, 1, 0, 5, true, false);
 #ifdef DGDEBUG
-                        std::cout << "Waiting for FLAG_MSG_RECVD after determining isItNaughty = true" << std::endl;
+            std::cout << "Waiting for FLAG_MSG_RECVD after determining isItNaughty = true" << std::endl;
 #endif
-                        ecappeer.readFromSocketn(ack, 1, 0, 1);
-                        if(ack[0] == FLAG_MSG_RECVD) {
+            ecappeer.readFromSocketn(ack, 1, 0, 1);
+            if(ack[0] == FLAG_MSG_RECVD) {
 				// write blockpage headers
 				ecappeer.writeToSocket(blockHeaders.c_str(), blockHeaders.length(), 0, 0);
-                        } else {
-                                throw std::runtime_error("Received invalid FLAG_MSG_RECVD after isItNaughty = true : " + std::string(1, ack[0]));
-                        }
+            } else {
+                throw std::runtime_error("Received invalid FLAG_MSG_RECVD after isItNaughty = true : " + std::string(1, ack[0]));
+            }
 			// after writing the blockpage headers, wait for the FLAG_MSG_RECVD again
 			ecappeer.readFromSocketn(ack, 1, 0, 1);
-                        if(ack[0] == FLAG_MSG_RECVD) {
-				//write blockpage
-				o.fg[filtergroup]->getHTMLTemplate()->display(&ecappeer, &url,
-		                    checkme.whatIsNaughty, checkme.whatIsNaughtyCategories,
-                		    empty, &empty, &empty, &empty, 0, emptyS);
-                        } else {
-                                throw std::runtime_error("Received invalid FLAG_MSG_RECVD after sending blockpage headers : " + std::string(1, ack[0]));
-                        }
+            if(ack[0] == FLAG_MSG_RECVD) {
+                //write blockpage
+                o.fg[filtergroup]->getHTMLTemplate()->display(&ecappeer, &url,
+                    checkme.whatIsNaughty, checkme.whatIsNaughtyCategories,
+                    empty, &empty, &empty, &empty, 0, emptyS);
+            } else {
+                throw std::runtime_error("Received invalid FLAG_MSG_RECVD after sending blockpage headers : " + std::string(1, ack[0]));
+            }
 			//Read from the socket to block and keep it open until the ecap adapter has read the whole blockpage
 			ecappeer.readFromSocketn(ack, 1, 0, 1);
-                        return 0;
+            return 0;
 		} else {
 			ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
 #ifdef DGDEBUG

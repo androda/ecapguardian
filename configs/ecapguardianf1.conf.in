@@ -430,29 +430,25 @@ reportinglevel = 3
 # notifaction will be sent.
 @EMAILSUPPORT@threshold = 0
 
+#SSL MITM Preservation Level
+# Used to specify how aggressive the filter should be in removing anti-MITM strategies, such as HPKP
+# Each level performs all actions from all lower numbered levels
+# 0 = Do Nothing
+# 1 = Set HPKP max-ages to 0 (don't enforce HPKP)
+# 2 (nothing yet)
+mitm_preservation_level=1
+
 #SSL certificate checking
-# Check that ssl certificates for servers on https connections are valid
-# and signed by a ca in the configured path
-sslcertcheck = off
+# REMOVED - handled by Squid configuration
 
 #SSL man in the middle
-# Forge ssl certificates for all non-exception sites, decrypt the data then re encrypt it
-# using a different private key. Used to filter ssl sites
-sslmitm = off
+# REMOVED - handled by Squid configuration
 
 #Limit SSL MITM to sites in greysslsitelist(s)
-# ignored if  sslmitm is off
-# SSL sites not matching greysslsitelist will be treat as if sslmitm is off.
-onlymitmsslgrey = off
+# REMOVED - handled by Squid configuration
 
 # Enable MITM site certificate checking
-# ignored if  sslmitm is off
-# default (recommended) is 'on'
-mitmcheckcert = on
+# REMOVED - handled by Squid configuration
 
 #Do not check ssl certificates for sites listed
-# Can be used to allow sites with self-signed or invalid certificates
-# or to reduced CPU load by not checking certs on heavily used sites (e.g. Google, Bing)
-# Use with caution!
-# Ignored if mitmcheckcert is 'off'
-nocheckcertsitelist = '@DGCONFDIR@/lists/nocheckcertsitelist'
+# REMOVED - handled by Squid configuration

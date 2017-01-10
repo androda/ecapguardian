@@ -53,6 +53,7 @@ class FOptionContainer
     bool ssl_mitm;
     bool only_mitm_ssl_grey;
     bool mitm_check_cert;
+    int mitm_preservation_level;
 
 #ifdef ENABLE_EMAIL
     // Email notification patch by J. Gauthier
@@ -277,79 +278,90 @@ class FOptionContainer
     //bool extractSearchTerms(String url, String &terms);
 
     FOptionContainer()
-        : block_downloads(false), searchterm_flag(false), banned_page(NULL), ssl_mitm(false), only_mitm_ssl_grey(false), no_check_cert_site_flag(false), ssl_check_cert(false), mitm_check_cert(true), referer_exception_site_flag(false), referer_exception_url_flag(false), embeded_referer_site_flag(false), embeded_referer_url_flag(false),
+        : block_downloads(false),
+        searchterm_flag(false),
+        banned_page(NULL),
+        ssl_mitm(false),
+        mitm_preservation_level(0),
+        only_mitm_ssl_grey(false),
+        no_check_cert_site_flag(false),
+        ssl_check_cert(false),
+        mitm_check_cert(true),
+        referer_exception_site_flag(false),
+        referer_exception_url_flag(false),
+        embeded_referer_site_flag(false),
+        embeded_referer_url_flag(false),
 #ifdef PRT_DNSAUTH
-        auth_exception_site_flag(false)
-        , auth_exception_url_flag(false)
-        ,
+        auth_exception_site_flag(false),
+        auth_exception_url_flag(false),
 #endif
-        addheader_regexp_flag(false)
-        , banned_search_flag(false)
-        , search_regexp_flag(false)
-        , local_banned_search_flag(false)
-        , banned_search_overide_flag(false)
-        , local_exception_site_flag(false)
-        , local_exception_url_flag(false)
-        , local_banned_site_flag(false)
-        , local_banned_url_flag(false)
-        , local_grey_site_flag(false)
-        , local_grey_url_flag(false)
-        , enable_regex_grey(false)
-        , enable_local_list(false)
-        , enable_ssl_legacy_logic(false)
-        , use_only_local_allow_lists(false)
-        , banned_phrase_flag(false)
-        , exception_site_flag(false)
-        , exception_url_flag(false)
-        , banned_extension_flag(false)
-        , banned_mimetype_flag(false)
-        , banned_site_flag(false)
-        , banned_url_flag(false)
-        , grey_site_flag(false)
-        , grey_url_flag(false)
-        , banned_regexpurl_flag(false)
-        , exception_regexpurl_flag(false)
-        , banned_regexpheader_flag(false)
-        , content_regexp_flag(false)
-        , url_regexp_flag(false)
-        , sslsite_regexp_flag(false)
-        , header_regexp_flag(false)
-        , url_redirect_regexp_flag(false)
-        , exception_extension_flag(false)
-        , exception_mimetype_flag(false)
-        , exception_file_site_flag(false)
-        , exception_file_url_flag(false)
-        , log_site_flag(false)
-        , log_url_flag(false)
-        , log_regexpurl_flag(false)
-        , ssl_denied_rewrite(false)
-        , allow_empty_host_certs(false)
-        , pics_icra_nuditymalegraphic(0)
-        , pics_icra_nudityfemalegraphic(0)
-        , pics_icra_nuditytopless(0)
-        , pics_icra_nuditybottoms(0)
-        , pics_icra_nuditysexualacts(0)
-        , pics_icra_nudityobscuredsexualacts(0)
-        , pics_icra_nuditysexualtouching(0)
-        , pics_icra_nuditykissing(0)
-        , pics_icra_nudityartistic(0)
-        , pics_icra_nudityeducational(0)
-        , pics_icra_nuditymedical(0)
-        , pics_icra_drugstobacco(0)
-        , pics_icra_drugsalcohol(0)
-        , pics_icra_drugsuse(0)
-        , pics_icra_gambling(0)
-        , pics_icra_weaponuse(0)
-        , pics_icra_intolerance(0)
-        , pics_icra_badexample(0)
-        , pics_icra_pgmaterial(0)
-        , pics_icra_violencerape(0)
-        , pics_icra_violencetohumans(0)
-        , pics_icra_violencetoanimals(0)
-        , pics_icra_violencetofantasy(0)
-        , pics_icra_violencekillinghumans(0)
-        , pics_icra_violencekillinganimals(0)
-        , pics_icra_violencekillingfantasy(0){};
+        addheader_regexp_flag(false),
+        banned_search_flag(false),
+        search_regexp_flag(false),
+        local_banned_search_flag(false),
+        banned_search_overide_flag(false),
+        local_exception_site_flag(false),
+        local_exception_url_flag(false),
+        local_banned_site_flag(false),
+        local_banned_url_flag(false),
+        local_grey_site_flag(false),
+        local_grey_url_flag(false),
+        enable_regex_grey(false),
+        enable_local_list(false),
+        enable_ssl_legacy_logic(false),
+        use_only_local_allow_lists(false),
+        banned_phrase_flag(false),
+        exception_site_flag(false),
+        xception_url_flag(false),
+        banned_extension_flag(false),
+        banned_mimetype_flag(false),
+        banned_site_flag(false),
+        banned_url_flag(false),
+        grey_site_flag(false),
+        grey_url_flag(false),
+        banned_regexpurl_flag(false),
+        exception_regexpurl_flag(false),
+        banned_regexpheader_flag(false),
+        content_regexp_flag(false),
+        url_regexp_flag(false),
+        sslsite_regexp_flag(false),
+        header_regexp_flag(false),
+        url_redirect_regexp_flag(false),
+        exception_extension_flag(false),
+        exception_mimetype_flag(false),
+        exception_file_site_flag(false),
+        exception_file_url_flag(false),
+        log_site_flag(false),
+        log_url_flag(false),
+        log_regexpurl_flag(false),
+        ssl_denied_rewrite(false),
+        allow_empty_host_certs(false),
+        pics_icra_nuditymalegraphic(0),
+        pics_icra_nudityfemalegraphic(0),
+        pics_icra_nuditytopless(0),
+        pics_icra_nuditybottoms(0),
+        pics_icra_nuditysexualacts(0),
+        pics_icra_nudityobscuredsexualacts(0),
+        pics_icra_nuditysexualtouching(0),
+        pics_icra_nuditykissing(0),
+        pics_icra_nudityartistic(0),
+        pics_icra_nudityeducational(0),
+        pics_icra_nuditymedical(0),
+        pics_icra_drugstobacco(0),
+        pics_icra_drugsalcohol(0),
+        pics_icra_drugsuse(0),
+        pics_icra_gambling(0),
+        pics_icra_weaponuse(0),
+        pics_icra_intolerance(0),
+        pics_icra_badexample(0),
+        pics_icra_pgmaterial(0),
+        pics_icra_violencerape(0),
+        pics_icra_violencetohumans(0),
+        pics_icra_violencetoanimals(0),
+        pics_icra_violencetofantasy(0),
+        pics_icra_violencekillinghumans(0),
+        pics_icra_violencekillinganimals(0),
+        pics_icra_violencekillingfantasy(0){};
     ~FOptionContainer();
     bool read(const char *filename);
     void reset();
