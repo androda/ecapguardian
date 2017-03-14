@@ -22,7 +22,7 @@
 #include <syslog.h>
 #include <cerrno>
 #include <zlib.h>
-
+#include <map>
 
 // GLOBALS
 extern OptionContainer o;
@@ -1939,6 +1939,7 @@ void HTTPHeader::in(BaseSocket * sock, bool allowpersistent, bool honour_reloadc
     if (dirty) { reset(); }
     dirty = true;
     int rc;
+    int lineNum = 0;
     // the RFCs don't specify a max header line length so this should be
     // dynamic really.  Pointed out (well reminded actually) by Daniel Robbins
     char buff[32768];  // setup a buffer to hold the incomming HTTP line
@@ -1967,6 +1968,9 @@ void HTTPHeader::in(BaseSocket * sock, bool allowpersistent, bool honour_reloadc
         discard = false;
         if (not (firsttime && line.length() <= 3)){
             header.push_back(line);  // stick the line in the deque that holds the header
+            std::pair<String, int> pair(line.before(":"), lineNum);
+            headerNameToHeaderPositionMap.insert(pair);
+            lineNum++;
 	} else {
             discard = true;
 #ifdef DGDEBUG

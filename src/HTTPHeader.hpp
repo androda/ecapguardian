@@ -16,6 +16,7 @@
 // INCLUDES
 
 #include <deque>
+#include <map>
 
 #include "String.hpp"
 //#include "DataBuffer.hpp"
@@ -29,6 +30,7 @@ class HTTPHeader
 {
 public:
     std::deque<String> header;
+    std::map<String, int> headerNameToHeaderPositionMap;
     //DataBuffer postdata;
     unsigned int port;
 
