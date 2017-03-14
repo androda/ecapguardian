@@ -2,3 +2,4 @@
 #include "dgconfig.h"
 #endif
 
+// Test that my username is showing properly now
