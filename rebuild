@@ -1,4 +1,4 @@
 make
-rm /sbin/e2guardian_old
-mv /sbin/e2guardian /sbin/e2guardian_old
-cp src/e2guardian /sbin/e2guardian
+rm /sbin/ecapguardian_old
+mv /sbin/ecapguardian /sbin/ecapguardian_old
+cp src/ecapguardian /sbin/ecapguardian
