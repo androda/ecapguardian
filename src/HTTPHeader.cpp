@@ -610,6 +610,66 @@ bool HTTPHeader::regExp(String& line, std::deque<RegExp>& regexp_list, std::dequ
     return linemodified;
 }
 
+bool HTTPHeader::applyMitmPreservationLevel(int level) {
+    bool headerModified = false;
+    switch (level) {  // Switch fall-through is in effect here
+        case 1:
+            headerModified = rewriteHpkpMaxAges() || headerModified;
+        case 0:
+            return headerModified;
+        break;
+        default:
+            return false;  // Unsupported MITM preservation level
+            break;
+    }
+}
+
+bool HTTPHeader::rewriteHpkpMaxAges() {
+    // https://news.netcraft.com/archives/2016/03/30/http-public-key-pinning-youre-doing-it-wrong.html
+    // https://linux-audit.com/delete-a-hsts-key-pin-in-chrome/
+    // https://scotthelme.co.uk/hpkp-cheat-sheet/
+    std::map<String, int>::iterator it;
+    // Throw away the report only header (it's worthless)
+    String hpkpHeaderReportOnlyName = "public-key-pins-report-only";
+    it = headerNameToHeaderPositionMap.find(hpkpHeaderReportOnlyName);
+    if (it != headerNameToHeaderPositionMap.end()) {
+        headerNameToHeaderPositionMap.erase(it);
+    }
+
+    // Check that this header has an HPKP entry
+    String hpkpHeaderName("public-key-pins");  // Search for lower-case headers in the name to position map
+    it = headerNameToHeaderPositionMap.find(hpkpHeaderName);
+    if (it != headerNameToHeaderPositionMap.end()) {
+        RegExp regexp;
+        regexp.comp("(.*?)max-age=[\r\n\t\f\v ]*?[0-9]+(.*)");
+        String repl = "$1max-age=0$2";  // Just set max-age to 0 (don't apply HPKP)
+        std::deque<RegExp> regToApply;
+        regToApply.push_back(regexp);
+        std::deque<String> replacement;
+        replacement.push_back(repl);
+        int headerPosition = it->second;
+        String line = header.at(headerPosition);
+        bool regexSuccess = regExp(line, regToApply, replacement);
+        if (regexSuccess) {
+            std::string newLine(line + "\r");
+            header[headerPosition] = String(newLine.c_str());
+#ifdef DGDEBUG
+            std::cout << "HPKP header regex applied.  New header line: " << std::endl;
+            std::cout << line << std::endl;
+#endif
+        }
+#ifdef DGDEBUG
+        else {
+            // log a warning about HPKP header failure
+            std::cout << "HPKP header regex not applied.  Original line remains: " << std::endl;
+            std::cout << line << std::endl;
+        }
+#endif
+        return regexSuccess;
+    }
+//#endif
+}
+
 // Perform searches and replacements on URL
 bool HTTPHeader::urlRegExp(int filtergroup){
     // exit immediately if list is empty
@@ -1968,7 +2028,12 @@ void HTTPHeader::in(BaseSocket * sock, bool allowpersistent, bool honour_reloadc
         discard = false;
         if (not (firsttime && line.length() <= 3)){
             header.push_back(line);  // stick the line in the deque that holds the header
-            std::pair<String, int> pair(line.before(":"), lineNum);
+
+            // Keep track of HTTP Header locations in the deque, for removal or modification purposes
+            String headerLine = line.before(":");
+            headerLine.toLower();  // lower case for easier header search later
+            headerLine.removeWhiteSpace();
+            std::pair<String, int> pair(headerLine, lineNum);
             headerNameToHeaderPositionMap.insert(pair);
             lineNum++;
 	} else {

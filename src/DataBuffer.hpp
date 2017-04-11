@@ -40,7 +40,7 @@ public:
     // gives true if it pauses due to too much data
     bool in(BaseSocket * sock, BaseSocket * peersock, class HTTPHeader * requestheader, class HTTPHeader * docheader, bool runav, int *headersent);
     // send body to client
-    void out(Socket * sock) throw(std::exception);
+    void out(BaseSocket * sock) throw(std::exception);
 
     void setTimeout(int t)    {        timeout = t;    };
     void setDecompress(String d)    {        decompress = d;    };

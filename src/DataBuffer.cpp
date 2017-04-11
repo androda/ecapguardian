@@ -242,7 +242,7 @@ bool DataBuffer::in(BaseSocket * sock, BaseSocket * peersock, HTTPHeader * reque
 }
 
 // send the request body to the client after having been handled by a DM plugin
-void DataBuffer::out(Socket * sock) throw(std::exception)
+void DataBuffer::out(BaseSocket * sock) throw(std::exception)
 {
     if (dontsendbody)    {
 #ifdef DGDEBUG

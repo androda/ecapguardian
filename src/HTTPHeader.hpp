@@ -124,6 +124,7 @@ public:
     bool urlRedirectRegExp(int filtergroup);
     bool DenySSL(int filtergroup);
     bool headerRegExp(int filtergroup);
+    bool applyMitmPreservationLevel(int level);
     // make a connection persistent - or not
     void makePersistent(bool persist = true);
     // make the request look as if its coming from the origin server
@@ -206,6 +207,8 @@ private:
 
     // check & fix headers from servers that don't obey standards
     void checkheader(bool allowpersistent);
+
+    bool rewriteHpkpMaxAges();
 
     // convert %xx back to original character
     static String hexToChar(const String &n, bool all = false);

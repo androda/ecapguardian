@@ -595,19 +595,17 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
 #endif
 //		}
 
-		url = requestHeader.getUrl(false, false);  // << Need to remove the 'isssl' flag from this method and put it somewhere else
-		urld = requestHeader.decode(url);
+        url = requestHeader.getUrl(false, false);  // << Need to remove the 'isssl' flag from this method and put it somewhere else
+        urld = requestHeader.decode(url);
 #ifdef DGDEBUG
-		std::cout << getpid() << "Reading in response header" << std::endl;
+        std::cout << getpid() << "Reading in response header" << std::endl;
 #endif
-        	//The eCAP peer is going to just dump over the response header.  Therefore, read it in.
-        	responseHeader.in(&ecappeer, true, true);  // get header from eCAP client, allowing persistency and breaking on reloadconfig
-
+        //The eCAP peer is going to just dump over the response header.  Therefore, read it in.
+        responseHeader.in(&ecappeer, true, true);  // get header from eCAP client, allowing persistency and breaking on reloadconfig
 #ifdef DEBUG
-		std::cout << getpid() << "After reading in response header" << std::endl;
+        std::cout << getpid() << "After reading in response header" << std::endl;
 #endif
-
-		// don't even bother scan testing if the content-length header indicates the file is larger than the maximum size we'll scan
+        // don't even bother scan testing if the content-length header indicates the file is larger than the maximum size we'll scan
         // - based on patch supplied by cahya (littlecahya@yahoo.de)
         // be careful: contentLength is signed, and max_content_filecache_scan_size is unsigned
         off_t cl = responseHeader.contentLength();
@@ -623,9 +621,9 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
         if (o.fg[filtergroup]->mitm_preservation_level) {
             shouldScan = true;
         }
-        
-		shouldScan = (cl != 0) && !isHead &&
-				((responseHeader.isContentType("text") || responseHeader.isContentType("-")) || !responsescanners.empty());
+
+        shouldScan = shouldScan || (cl != 0) && !isHead &&
+            ((responseHeader.isContentType("text") || responseHeader.isContentType("-")) || !responsescanners.empty());
 
 //#ifdef DGDEBUG
 //		std::cout << "Flushing eCAP socket" << std::endl;
@@ -970,7 +968,6 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
                 	}
                 }
 
-        
         // Need new logic.
         // Possibilities:
         /*
@@ -979,35 +976,27 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
         3: Modifying, not naughty: Modify - new response headers, but original body
         4: Modifying, was naughty: Modify - new response headers, but blockpage body
         */
-        
+        bool responseHeaderModified = false;
         //This is where you scan response headers for things to remove
         if (o.fg[filtergroup]->mitm_preservation_level) {
-            //Scan the headers for various anti-MITM technologies and handle them
-            //HPKP looks like this in the header: "Public-Key-Pins:pin-sha256="sbKjNAOqGTDfcyW1mBsy9IOtS2XS4AE+RJsm+LcR+mU="; max-age=0;"
-                //just replace whatever max-age that's specified with '0'
-                   //Probably needs to be implemented in HTTPHeader.cpp
-           //See https://news.netcraft.com/archives/2016/03/30/http-public-key-pinning-youre-doing-it-wrong.html
-           // and https://linux-audit.com/delete-a-hsts-key-pin-in-chrome/
-           // and https://scotthelme.co.uk/hpkp-cheat-sheet/
-            
+            responseHeaderModified = responseHeader.applyMitmPreservationLevel(o.fg[filtergroup]->mitm_preservation_level);
         }
-        
-		if(checkme.isItNaughty) {
-            std::string empty("");
-			String emptyS(empty.c_str());
-			ecappeer.writeToSocket(&FLAG_MODIFY, 1, 0, 5, true, false);
+
+        std::string empty("");
+        String emptyS(empty.c_str());
+        if (checkme.isItNaughty) {  // CASE 1: Block Response Content
+            ecappeer.writeToSocket(&FLAG_MODIFY, 1, 0, 5, true, false);
 #ifdef DGDEBUG
             std::cout << "Waiting for FLAG_MSG_RECVD after determining isItNaughty = true" << std::endl;
 #endif
             ecappeer.readFromSocketn(ack, 1, 0, 1);
-            if(ack[0] == FLAG_MSG_RECVD) {
-				// write blockpage headers
-				ecappeer.writeToSocket(blockHeaders.c_str(), blockHeaders.length(), 0, 0);
+            if(ack[0] == FLAG_MSG_RECVD) {  // write blockpage headers
+                ecappeer.writeToSocket(blockHeaders.c_str(), blockHeaders.length(), 0, 0);
             } else {
                 throw std::runtime_error("Received invalid FLAG_MSG_RECVD after isItNaughty = true : " + std::string(1, ack[0]));
             }
-			// after writing the blockpage headers, wait for the FLAG_MSG_RECVD again
-			ecappeer.readFromSocketn(ack, 1, 0, 1);
+            // after writing the blockpage headers, wait for the FLAG_MSG_RECVD again
+            ecappeer.readFromSocketn(ack, 1, 0, 1);
             if(ack[0] == FLAG_MSG_RECVD) {
                 //write blockpage
                 o.fg[filtergroup]->getHTMLTemplate()->display(&ecappeer, &url,
@@ -1016,23 +1005,45 @@ int ConnectionHandler::handleEcapRespmod(UDSocket &ecappeer){
             } else {
                 throw std::runtime_error("Received invalid FLAG_MSG_RECVD after sending blockpage headers : " + std::string(1, ack[0]));
             }
-			//Read from the socket to block and keep it open until the ecap adapter has read the whole blockpage
-			ecappeer.readFromSocketn(ack, 1, 0, 1);
+            //Read from the socket to block and keep it open until the ecap adapter has read the whole blockpage
+            ecappeer.readFromSocketn(ack, 1, 0, 1);
             return 0;
-		} else {
-			ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
+        } else if (responseHeaderModified) {  // CASE 2: Response Headers Modified
+            ecappeer.writeToSocket(&FLAG_MODIFY, 1, 0, 5, true, false);
 #ifdef DGDEBUG
-			std::cout << "Waiting for FLAG_MSG_RECVD after determining isItNaughty = false" << std::endl;
+            std::cout << "Waiting for FLAG_MSG_RECVD after determining wasNaughty = false and modifyResponse = true" << std::endl;
 #endif
-			ecappeer.readFromSocketn(ack, 1, 0, 1);
-			if(ack[0] == FLAG_MSG_RECVD) {
-				return 0;
-			} else {
-				throw std::runtime_error("Received invalid FLAG_MSG_RECVD after isItNaughty = false : " + std::string(1, ack[0]));
-			}
-			return 0;
-		}
-	} catch (std::exception & e)    {
+            ecappeer.readFromSocketn(ack, 1, 0, 1);
+            if(ack[0] == FLAG_MSG_RECVD) {  // write modified headers
+                responseHeader.out(&ecappeer);
+            } else {
+                throw std::runtime_error("Received invalid FLAG_MSG_RECVD after isItNaughty = true : " + std::string(1, ack[0]));
+            }
+            // after writing the modified headers, wait for the FLAG_MSG_RECVD again
+            ecappeer.readFromSocketn(ack, 1, 0, 1);
+            if(ack[0] == FLAG_MSG_RECVD) {
+                //write back the document body (might have been modified along the way)
+                docbody.out(&ecappeer);
+            } else {
+                throw std::runtime_error("Received invalid FLAG_MSG_RECVD after sending blockpage headers : " + std::string(1, ack[0]));
+            }
+            //Read from the socket to block and keep it open until the ecap adapter has read the whole blockpage
+            ecappeer.readFromSocketn(ack, 1, 0, 1);
+            return 0;
+        } else {  // CASE 3: Allow Original Response
+            ecappeer.writeToSocket(&FLAG_USE_VIRGIN, 1, 0, 5, true, false);
+#ifdef DGDEBUG
+            std::cout << "Waiting for FLAG_MSG_RECVD after determining isItNaughty = false" << std::endl;
+#endif
+            ecappeer.readFromSocketn(ack, 1, 0, 1);
+            if(ack[0] == FLAG_MSG_RECVD) {
+                return 0;
+            } else {
+                throw std::runtime_error("Received invalid FLAG_MSG_RECVD after isItNaughty = false : " + std::string(1, ack[0]));
+            }
+            return 0;
+        }
+    } catch (std::exception & e)    {
 #ifdef DGDEBUG
         std::cerr << dbgPeerPort << " -connection handler caught an exception: " << e.what() << std::endl;
 #endif
